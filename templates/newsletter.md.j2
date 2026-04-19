@@ -1,0 +1,58 @@
+# Tech Spark — {{ issue.month }}
+
+*Digital & IT innovation for ScottishPower / Iberdrola.*
+
+{{ issue.editor_note }}
+
+---
+
+## Sparks
+
+{% for si in issue.sparks %}
+### {{ loop.index }}. [{{ si.story.title }}]({{ si.story.url }})
+
+*{{ si.story.source }}{% if si.story.published %} · {{ si.story.published.strftime('%-d %b %Y') }}{% endif %}*
+
+{{ si.insight.summary }}
+
+**Why it matters (energy & utilities):** {{ si.insight.energy_utilities_angle }}
+
+**…and for us:** {{ si.insight.org_angle }}
+
+{% if si.insight.broader_angle and si.insight.broader_angle|lower != 'n/a' %}
+**Bigger picture:** {{ si.insight.broader_angle }}
+{% endif %}
+
+> {{ si.insight.dry_line }}
+
+---
+
+{% endfor %}
+
+{% if issue.trends %}
+## Current trends
+
+{% for trend in issue.trends %}
+### {{ trend.title }}
+
+{{ trend.body }}
+
+> {{ trend.dry_line }}
+
+{% endfor %}
+---
+
+{% endif %}
+
+{% if issue.quick_hits %}
+## Quick hits
+
+{% for si in issue.quick_hits %}
+- [{{ si.story.title }}]({{ si.story.url }}) — *{{ si.story.source }}*. {{ si.insight.dry_line }}
+{% endfor %}
+
+---
+
+{% endif %}
+
+*Tech Spark is drafted automatically and edited by a human before sending. Sign-off line goes here.*

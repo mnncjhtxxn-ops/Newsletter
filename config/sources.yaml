@@ -1,0 +1,72 @@
+# Tech Spark — curated RSS feed list.
+# Edit freely: add, remove, re-tag. No code changes needed.
+# `category` is passed to the ranker so it understands *why* a story surfaced.
+
+feeds:
+  # Digital / IT innovation
+  - name: TechCrunch
+    url: https://techcrunch.com/feed/
+    category: digital_it
+  - name: The Register
+    url: https://www.theregister.com/headlines.atom
+    category: digital_it
+  - name: Wired
+    url: https://www.wired.com/feed/rss
+    category: digital_it
+  - name: MIT Technology Review
+    url: https://www.technologyreview.com/feed/
+    category: digital_it
+  - name: Ars Technica
+    url: https://feeds.arstechnica.com/arstechnica/index
+    category: digital_it
+  - name: The Verge
+    url: https://www.theverge.com/rss/index.xml
+    category: digital_it
+  - name: Hacker News (front page)
+    url: https://hnrss.org/frontpage
+    category: digital_it
+
+  # Energy & utilities
+  - name: Utility Week
+    url: https://utilityweek.co.uk/feed/
+    category: energy_utilities
+  - name: Current News
+    url: https://www.current-news.co.uk/feed/
+    category: energy_utilities
+  - name: Energy Digital
+    url: https://energydigital.com/rss.xml
+    category: energy_utilities
+  - name: Reuters Energy
+    url: https://www.reutersagency.com/feed/?best-sectors=energy&post_type=best
+    category: energy_utilities
+  - name: IEA News
+    url: https://www.iea.org/news/rss
+    category: energy_utilities
+
+  # UK policy / regulation
+  - name: GOV.UK Digital Strategy
+    url: https://www.gov.uk/government/organisations/central-digital-and-data-office.atom
+    category: uk_policy
+  - name: Ofgem
+    url: https://www.ofgem.gov.uk/rss.xml
+    category: uk_policy
+  - name: NCSC Advisories
+    url: https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml
+    category: uk_policy
+
+  # Cloud & AI vendor signal
+  - name: AWS What's New
+    url: https://aws.amazon.com/about-aws/whats-new/recent/feed/
+    category: vendor_signal
+  - name: Azure Updates
+    url: https://azurecomcdn.azureedge.net/en-gb/updates/feed/
+    category: vendor_signal
+  - name: Google Cloud Blog
+    url: https://cloudblog.withgoogle.com/rss/
+    category: vendor_signal
+  - name: Anthropic News
+    url: https://www.anthropic.com/news/rss.xml
+    category: vendor_signal
+  - name: OpenAI Blog
+    url: https://openai.com/blog/rss.xml
+    category: vendor_signal

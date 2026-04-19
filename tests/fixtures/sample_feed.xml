@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>Sample Utility News</title>
+<link>https://example.com/</link>
+<description>Fixture feed for Tech Spark smoke tests.</description>
+<item>
+<title>Ofgem consults on network resilience reforms</title>
+<link>https://example.com/ofgem-resilience</link>
+<guid isPermaLink="false">ofgem-resilience-1</guid>
+<pubDate>Mon, 13 Apr 2026 09:00:00 +0000</pubDate>
+<description><![CDATA[Regulator opens consultation on RIIO-ED3 resilience obligations, with new cyber and storm-response expectations for DNOs.]]></description>
+</item>
+<item>
+<title>Hyperscaler pledges another round of net-zero targets</title>
+<link>https://example.com/cloud-netzero</link>
+<guid isPermaLink="false">cloud-netzero-1</guid>
+<pubDate>Tue, 14 Apr 2026 10:30:00 +0000</pubDate>
+<description><![CDATA[Major cloud provider announces revised 2040 net-zero pledge, replacing its 2030 pledge replacing its 2025 pledge.]]></description>
+</item>
+<item>
+<title>AI coding assistants land on-call rotation</title>
+<link>https://example.com/ai-oncall</link>
+<guid isPermaLink="false">ai-oncall-1</guid>
+<pubDate>Wed, 15 Apr 2026 08:00:00 +0000</pubDate>
+<description><![CDATA[Large enterprise reports first production incidents triaged end-to-end by AI agents with human approval gates.]]></description>
+</item>
+</channel>
+</rss>

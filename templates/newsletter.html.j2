@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tech Spark — {{ issue.month }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f2;font-family:Georgia,'Times New Roman',serif;color:#1a1a1a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f2;">
+<tr><td align="center" style="padding:24px 12px;">
+
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #e3e3df;">
+
+<tr><td style="padding:28px 32px 8px 32px;border-bottom:1px solid #e3e3df;">
+<div style="font-family:Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:#8a8a85;">Tech Spark</div>
+<h1 style="margin:6px 0 0 0;font-size:28px;line-height:1.15;color:#111;">{{ issue.month }}</h1>
+<div style="margin-top:4px;font-size:14px;color:#555;font-style:italic;">Digital &amp; IT innovation for ScottishPower / Iberdrola.</div>
+</td></tr>
+
+<tr><td style="padding:20px 32px 8px 32px;font-size:16px;line-height:1.55;">
+{{ issue.editor_note }}
+</td></tr>
+
+<tr><td style="padding:8px 32px 0 32px;">
+<h2 style="font-size:20px;margin:24px 0 8px 0;border-bottom:2px solid #111;padding-bottom:6px;">Sparks</h2>
+</td></tr>
+
+{% for si in issue.sparks %}
+<tr><td style="padding:12px 32px 0 32px;">
+<h3 style="font-size:18px;margin:16px 0 4px 0;line-height:1.3;">
+{{ loop.index }}. <a href="{{ si.story.url }}" style="color:#00693e;text-decoration:none;">{{ si.story.title }}</a>
+</h3>
+<div style="font-size:13px;color:#777;margin-bottom:10px;">
+{{ si.story.source }}{% if si.story.published %} &middot; {{ si.story.published.strftime('%-d %b %Y') }}{% endif %}
+</div>
+<p style="font-size:15px;line-height:1.55;margin:0 0 10px 0;">{{ si.insight.summary }}</p>
+<p style="font-size:15px;line-height:1.55;margin:0 0 8px 0;"><strong>Why it matters (energy &amp; utilities):</strong> {{ si.insight.energy_utilities_angle }}</p>
+<p style="font-size:15px;line-height:1.55;margin:0 0 8px 0;"><strong>&hellip;and for us:</strong> {{ si.insight.org_angle }}</p>
+{% if si.insight.broader_angle and si.insight.broader_angle|lower != 'n/a' %}
+<p style="font-size:15px;line-height:1.55;margin:0 0 8px 0;"><strong>Bigger picture:</strong> {{ si.insight.broader_angle }}</p>
+{% endif %}
+<blockquote style="margin:12px 0 4px 0;padding:10px 14px;border-left:3px solid #00693e;background:#f7f7f4;font-style:italic;color:#333;font-size:15px;">
+{{ si.insight.dry_line }}
+</blockquote>
+</td></tr>
+<tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e3df;margin:18px 0 0 0;"></div></td></tr>
+{% endfor %}
+
+{% if issue.trends %}
+<tr><td style="padding:12px 32px 0 32px;">
+<h2 style="font-size:20px;margin:24px 0 8px 0;border-bottom:2px solid #111;padding-bottom:6px;">Current trends</h2>
+</td></tr>
+{% for trend in issue.trends %}
+<tr><td style="padding:12px 32px 0 32px;">
+<h3 style="font-size:17px;margin:14px 0 4px 0;">{{ trend.title }}</h3>
+<p style="font-size:15px;line-height:1.55;margin:0 0 8px 0;">{{ trend.body }}</p>
+<blockquote style="margin:8px 0 4px 0;padding:10px 14px;border-left:3px solid #00693e;background:#f7f7f4;font-style:italic;color:#333;font-size:15px;">
+{{ trend.dry_line }}
+</blockquote>
+</td></tr>
+{% endfor %}
+<tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e3df;margin:18px 0 0 0;"></div></td></tr>
+{% endif %}
+
+{% if issue.quick_hits %}
+<tr><td style="padding:12px 32px 0 32px;">
+<h2 style="font-size:20px;margin:24px 0 8px 0;border-bottom:2px solid #111;padding-bottom:6px;">Quick hits</h2>
+<ul style="font-size:15px;line-height:1.55;padding-left:20px;margin:8px 0 0 0;">
+{% for si in issue.quick_hits %}
+<li style="margin:6px 0;">
+<a href="{{ si.story.url }}" style="color:#00693e;text-decoration:none;">{{ si.story.title }}</a>
+— <em>{{ si.story.source }}</em>. {{ si.insight.dry_line }}
+</li>
+{% endfor %}
+</ul>
+</td></tr>
+<tr><td style="padding:0 32px;"><div style="border-top:1px solid #e3e3df;margin:18px 0 0 0;"></div></td></tr>
+{% endif %}
+
+<tr><td style="padding:16px 32px 28px 32px;font-size:13px;color:#888;font-style:italic;">
+Tech Spark is drafted automatically and edited by a human before sending. Sign-off line goes here.
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
