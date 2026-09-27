@@ -28,7 +28,7 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | ID | Test | Status | Evidence |
 |---|---|---|---|
 | V01 | Attract scene: composed depth, recognisable objects, negative space | PASS as built / **awaiting your visual sign-off** | screenshots in the session; the objects are light-formed point clouds, not PBR models (see the art-direction note in the handover) |
-| V02 | Close inspection quality | PASS as built / **awaiting your visual sign-off** | hard-light projections for car, home, bakery, battery and turbine; settled framing verified at 729–759 px of a 740 px target beside the panel |
+| V02 | Close inspection quality | PASS as built / **awaiting your visual sign-off** | supplied concept car, timber-frame house and bakery models as hard-light projections; procedural turbine and battery; framing verified beside the panel |
 | V03 | Pull-apart reveal with tap alternative | PASS | tap on object, tap on score stave, and the visible "Why did charging happen then?" button all open the same reveal |
 | V04 | Before / with-your-change replay | PASS | ghost bars of the previous run in the score, "what changed" panel with the changed input named |
 | V05 | Conflicting requirements | PASS | price-limit conflict with two validated options; infeasible target with bound-based options |

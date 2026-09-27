@@ -1,0 +1,38 @@
+{
+  "note": "Only geometry is used. Textures, materials and source files are never bundled; each model is decimated, normalised and quantised by tools/prepare-assets.py into src/assets/<name>.geo, which the single-file build embeds.",
+  "assets": [
+    {
+      "id": "car",
+      "title": "Free Concept Car 038",
+      "creator": "Unity Fan (YouTube channel), as named in the source file",
+      "sourceFile": "free-concept-car-038-public-domain-cc0.zip → source/Concept Car 038 - Unity Fan - Youtube channel.fbx",
+      "licence": "CC0 / public domain, as stated in the supplied archive name. No licence file was inside the archive; confirm the original listing before release.",
+      "sourceUrl": "not recorded in the file",
+      "changes": "joined 36 meshes (ground planes dropped), decimated 221,182 → 24,000 triangles, rotated long axis to X, scaled to 2.5 units, quantised to int16",
+      "runtimePath": "src/assets/car.geo",
+      "triangles": 24000
+    },
+    {
+      "id": "house",
+      "title": "Timber Frame House",
+      "creator": "Razny (https://sketchfab.com/razniak1910)",
+      "sourceFile": "timber_frame_house.glb",
+      "licence": "Sketchfab Standard (https://sketchfab.com/licenses), from the file's own metadata. Standard licence permits use inside a project but not redistribution of the model itself: a derived geometry file in a public repository may count as redistribution. Confirm before the repository is made public or the build is shared beyond the exhibition.",
+      "sourceUrl": "https://sketchfab.com/3d-models/timber-frame-house-af71940329ee4d27bb4fe5dcc0173616",
+      "changes": "joined 84 meshes, decimated 194,153 → 49,949 triangles (small disconnected parts limit further collapse), scaled to 2.9 units, quantised to int16",
+      "runtimePath": "src/assets/house.geo",
+      "triangles": 49949
+    },
+    {
+      "id": "bakery",
+      "title": "Korean bakery (kobakery)",
+      "creator": "unknown — no author or licence metadata in the .blend file",
+      "sourceFile": "korean-bakery.zip → source/kobakery_render.blend",
+      "licence": "UNKNOWN. Do not assume CC0. BLOCKED for any release until the licence and creator are confirmed.",
+      "sourceUrl": "not recorded",
+      "changes": "joined 33 meshes, decimated 38,299 → 24,000 triangles, scaled to 2.8 units, quantised to int16",
+      "runtimePath": "src/assets/bakery.geo",
+      "triangles": 24000
+    }
+  ]
+}

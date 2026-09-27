@@ -15,9 +15,9 @@ export const NODE_DEFS = [
   { id: 'substation', label: "The street's cable", pos: [0, 5.5, -10], color: '#b9c8ff', hot: '#ffffff', shape: 'substation', scale: 1.0, dim: 0.62 },
   { id: 'score', label: 'The orchestra', pos: [0, 0.6, -2.5], color: '#9fe9ff', hot: '#ffffff', shape: 'score', scale: 0.9, info: true, dim: 0.45 },
   { id: 'battery', label: 'The home battery', pos: [2.5, -2.6, 1.5], color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 1.0, dim: 0.5 },
-  { id: 'car', label: 'Your car', pos: [10, -3.4, 3.5], color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.25, dim: 0.7 },
-  { id: 'home', label: 'Your home', pos: [-9.5, -3.2, 3.5], color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.25, dim: 0.7 },
-  { id: 'bakery', label: 'The bakery', pos: [14, 1.8, -3.5], color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.05, dim: 0.65 },
+  { id: 'car', label: 'Your car', pos: [10, -3.4, 3.5], color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.25, dim: 0.7, size: 0.6 },
+  { id: 'home', label: 'Your home', pos: [-9.5, -3.2, 3.5], color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.5, dim: 0.65, size: 0.6 },
+  { id: 'bakery', label: 'The bakery', pos: [14, 1.8, -3.5], color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.05, dim: 0.6, size: 0.6 },
   { id: 'street', label: 'The other homes', pos: [-13.5, 1.2, -3.5], color: '#b7a6f2', hot: '#e6dcff', shape: 'street', scale: 1.05, dim: 0.42 },
 ];
 
@@ -31,7 +31,7 @@ export class Nodes {
       const g = new THREE.Group();
       g.position.set(...def.pos);
       g.scale.setScalar(def.scale);
-      const mat = pointsMaterial({ color: def.color, colorHot: def.hot, size: def.info ? 0.55 : 0.85, opacity: def.dim || 0.9 });
+      const mat = pointsMaterial({ color: def.color, colorHot: def.hot, size: def.size || (def.info ? 0.55 : 0.85), opacity: def.dim || 0.9 });
       const shape = shapes[def.shape]();
       const pts = makePoints(shape.positions, mat, shape.fills);
       g.add(pts);
@@ -98,7 +98,7 @@ export class Nodes {
       if (id === 'car' && frame?.carAway) target *= 0.12;
       // condensing: the particles pull in and dim as the projection takes over
       const c = isRevealed ? condense : (n.holo ? n.holo.c : 0);
-      if (c > 0) target *= 1 - 0.45 * c;
+      if (c > 0) target *= 1 - 0.65 * c;
       n.mat.uniforms.uBreath.value = 0.02 * (1 - 0.8 * c);
       if (n.holo) n.holo.update(isRevealed ? condense : Math.max(0, n.holo.c - (frame?.dt ?? 0.016) * 2.5), time, n.extras.blades ? n.extras.blades.rotation.z : null);
       if (id === 'sun' && frame) target *= 0.18 + 0.82 * Math.min(1, frame.solarFrac * 1.5);

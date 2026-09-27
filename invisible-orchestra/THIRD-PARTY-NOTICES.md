@@ -15,3 +15,13 @@ https://github.com/mrdoob/three.js/blob/dev/LICENSE
 
 esbuild (MIT) is used at build time only and is not part of the shipped file.
 No fonts, images, audio or video assets are bundled: every sprite is drawn procedurally and text uses the system font stack.
+
+## 3D models (geometry only)
+
+Three supplied models are embedded as decimated, quantised geometry (no textures or materials). Full details, changes made and licence status are in `assets/manifest.json`.
+
+| Asset | Creator | Licence | Status |
+|---|---|---|---|
+| Free Concept Car 038 | Unity Fan | CC0 (per archive name; no licence file inside) | usable; confirm listing |
+| Timber Frame House | Razny, Sketchfab | Sketchfab Standard | usable in the exhibit; redistribution of the derived geometry needs confirmation |
+| Korean bakery | unknown | unknown | **blocked for release until confirmed** |

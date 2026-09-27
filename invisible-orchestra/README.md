@@ -23,7 +23,7 @@ There are exactly three signature gestures (touch, pull, change-and-replay), a v
 
 ## Made of light at every scale
 
-At overview scale every object is a cloud of light. When you pull one forward, its particles coalesce into a **hard-light projection**: solid translucent surfaces with bright edges, a faint scanline shimmer, an emitter ring beneath, and tiny dust motes drifting through the field. It is more substantial than the overview, and still unmistakably made of light. Release it and it dissolves back into the strands. The projections are procedural geometry (`src/scene/holograms.js`); nothing is loaded.
+At overview scale every object is a cloud of light. When you pull one forward, its particles coalesce into a **hard-light projection**: solid translucent surfaces with bright edges, a faint scanline shimmer, an emitter ring beneath, and tiny dust motes drifting through the field. It is more substantial than the overview, and still unmistakably made of light. Release it and it dissolves back into the strands. The car, home and bakery come from supplied 3D models prepared by `tools/prepare-assets.py` (Blender's Python module: join, drop ground planes, decimate, normalise, quantise to int16) and embedded as compact geometry; the same mesh feeds the ambient point cloud (surface and crease-edge samples) and the projection, so the object that resolves is the one the visitor saw. The turbine and battery are procedural. Licence status per asset is in `assets/manifest.json`.
 
 ## Why the spectacle has substance
 
@@ -135,6 +135,10 @@ src/
   scene/glow.js      shader material, procedural sprite, halo pass
   scene/shapes.js    objects formed from light (point-cloud generators)
   scene/holograms.js hard-light projections the objects condense into when revealed
+  assets/loader.js   decodes embedded geometry; surface and crease-edge sampling
+  assets/*.geo       decimated, quantised model geometry (see tools/prepare-assets.py)
+assets/manifest.json asset provenance, changes made and licence status
+tools/prepare-assets.py  model preparation (needs `pip install bpy`)
   scene/nodes.js     the cast, driven by simulation state each frame
   scene/ribbons.js   energy ribbons (flow) and information ribbons (packets)
   scene/field.js     ambient drifting strands

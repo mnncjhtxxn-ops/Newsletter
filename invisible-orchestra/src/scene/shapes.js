@@ -4,7 +4,36 @@
  * in local units (roughly 1 = 1 metre of sculpture space).
  */
 
+import { sampleSurface, sampleEdges, assetGeometry } from '../assets/loader.js';
+
 const rnd = (a = 1) => (Math.random() * 2 - 1) * a;
+
+/**
+ * A modelled object expressed as light: points sampled on its surface, plus
+ * a few interior points whose brightness follows the object's state (charge,
+ * warmth, oven heat). The same mesh becomes the hard-light projection.
+ */
+function fromAsset(name, surfaceCount, interior, edgeShare = 0.6, edgeDeg = 32) {
+  const nEdge = Math.round(surfaceCount * edgeShare);
+  const surf = sampleSurface(name, surfaceCount - nEdge, name.length * 7919);
+  const edges = sampleEdges(name, nEdge, edgeDeg);
+  const bb = assetGeometry(name).boundingBox;
+  const a = Array.from(edges).concat(Array.from(surf));
+  const n0 = a.length / 3;
+  const fills = [];
+  for (let i = 0; i < n0; i++) fills.push(0);
+  if (interior) {
+    const { count, box, fill } = interior;
+    for (let i = 0; i < count; i++) {
+      const x = box[0] + Math.random() * (box[3] - box[0]);
+      const y = box[1] + Math.random() * (box[4] - box[1]);
+      const z = box[2] + Math.random() * (box[5] - box[2]);
+      a.push(x, y, z);
+      fills.push(fill(x, y, z));
+    }
+  }
+  return { positions: Float32Array.from(a), fills: Float32Array.from(fills), bb };
+}
 
 function push(arr, x, y, z) {
   arr.push(x, y, z);
@@ -69,6 +98,11 @@ export function turbineBlades() {
 }
 
 export function car() {
+  // surface of the concept car; interior points fill left→right with state of charge
+  return fromAsset('car', 1000, { count: 180, box: [-1.0, -0.3, -0.34, 1.0, 0.25, 0.34], fill: (x) => (x + 1.0) / 2.0 }, 0.7, 30);
+}
+
+export function carProcedural() {
   const a = [];
   // body: lower box and a cabin, softened by jitter
   box(a, 2.4, 0.55, 1.1, 0, -0.1, 0, 34);
@@ -92,6 +126,11 @@ export function car() {
 }
 
 export function house() {
+  // warmth rises: interior fill follows height
+  return fromAsset('house', 1100, { count: 200, box: [-0.8, -0.6, -1.1, 0.8, 0.3, 1.1], fill: (x, y) => (y + 0.6) / 0.9 }, 0.7, 55);
+}
+
+export function houseProcedural() {
   const a = [];
   box(a, 1.8, 1.3, 1.6, 0, -0.35, 0, 30);
   // roof
@@ -113,6 +152,10 @@ export function house() {
 }
 
 export function bakery() {
+  return fromAsset('bakery', 1100, { count: 200, box: [-0.9, -1.0, -0.7, 0.9, -0.2, 0.7], fill: () => Math.random() }, 0.65, 42);
+}
+
+export function bakeryProcedural() {
   const a = [];
   box(a, 2.6, 1.5, 1.6, 0, -0.25, 0, 30);
   // awning ridge and a big front window

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { pointsMaterial, makePoints } from './glow.js';
+import { assetGeometry } from '../assets/loader.js';
 
 /**
  * Hard-light projections. When a hero object is pulled forward, its
@@ -82,8 +83,20 @@ function prism(w, h, d) {
   return g;
 }
 
+/* Dense models with many overlapping faces accumulate more additive light
+   per pixel, so each asset carries an intensity that keeps the projection
+   translucent rather than blown out. */
+function fromAsset(name, intensity = 1, dustPad = 0.3) {
+  const g = assetGeometry(name);
+  const bb = g.boundingBox;
+  return { parts: [g], shared: true, intensity, y0: bb.min.y, y1: bb.max.y, dust: [bb.max.x - bb.min.x + dustPad, bb.max.y - bb.min.y + dustPad, bb.max.z - bb.min.z + dustPad] };
+}
+
 const BUILDERS = {
-  car() {
+  car() { return fromAsset('car', 0.75); },
+  house() { return fromAsset('house', 0.16); },
+  bakery() { return fromAsset('bakery', 0.42); },
+  carProcedural() {
     const parts = [];
     // Side profile of a compact hatchback (x = length, y = height), extruded across the width with a soft bevel.
     const p = new THREE.Shape();
@@ -116,7 +129,7 @@ const BUILDERS = {
     for (const z of [0.34, -0.34]) { const l = new THREE.BoxGeometry(0.06, 0.09, 0.22); l.translate(1.24, 0.0, z); parts.push(l); }
     return { parts, y0: -0.62, y1: 0.76, dust: [2.5, 1.4, 1.1] };
   },
-  house() {
+  houseProcedural() {
     const parts = [];
     const b = new THREE.BoxGeometry(1.8, 1.3, 1.6); b.translate(0, -0.35, 0); parts.push(b);
     const r = prism(2.0, 0.85, 1.8); r.translate(0, 0.3, 0); parts.push(r);
@@ -125,7 +138,7 @@ const BUILDERS = {
     const door = new THREE.BoxGeometry(0.3, 0.6, 0.04); door.translate(0.35, -0.7, 0.81); parts.push(door);
     return { parts, y0: -1.0, y1: 1.3, dust: [1.9, 2.2, 1.7] };
   },
-  bakery() {
+  bakeryProcedural() {
     const parts = [];
     const b = new THREE.BoxGeometry(2.6, 1.5, 1.6); b.translate(0, -0.25, 0); parts.push(b);
     const aw = new THREE.BoxGeometry(2.7, 0.06, 0.5); aw.translate(0, 0.2, 1.0); parts.push(aw);
@@ -173,9 +186,11 @@ export class Hologram {
     this.edgeMat = new THREE.LineBasicMaterial({ color: new THREE.Color(def.color).lerp(new THREE.Color(def.hot), 0.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
     this.meshes = [];
     this.edges = [];
+    this.shared = !!built.shared; // asset geometry is owned by the loader cache, never disposed here
+    this.intensity = built.intensity ?? 1;
     for (const g of built.parts) {
       const m = new THREE.Mesh(g, this.mat); m.frustumCulled = false; this.group.add(m); this.meshes.push(m);
-      const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 40), this.edgeMat); e.frustumCulled = false; this.group.add(e); this.edges.push(e);
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, built.shared ? 55 : 40), this.edgeMat); e.frustumCulled = false; this.group.add(e); this.edges.push(e);
     }
     if (built.blades) {
       this.blades = new THREE.Group();
@@ -216,8 +231,8 @@ export class Hologram {
     if (!this.group.visible) return;
     this.mat.uniforms.uTime.value = time;
     this.mat.uniforms.uBuild.value = Math.min(1, c * 1.15);
-    this.mat.uniforms.uOpacity.value = Math.min(1, c * 1.2);
-    this.edgeMat.opacity = 0.5 * Math.pow(c, 1.5);
+    this.mat.uniforms.uOpacity.value = Math.min(1, c * 1.2) * this.intensity;
+    this.edgeMat.opacity = 0.5 * Math.pow(c, 1.5) * Math.min(1, this.intensity + 0.3);
     this.baseMat.opacity = 0.35 * Math.pow(c, 2) * (0.85 + 0.15 * Math.sin(time * 1.4));
     this.rings[1].rotation.z = time * 0.3;
     const sc = 1 + 0.12 * c;
@@ -228,7 +243,7 @@ export class Hologram {
   }
 
   dispose() {
-    for (const m of this.meshes) m.geometry.dispose();
+    for (const m of this.meshes) if (!this.shared) m.geometry.dispose();
     for (const e of this.edges) e.geometry.dispose();
     this.mat.dispose(); this.edgeMat.dispose(); this.baseMat.dispose(); for (const r of this.rings) r.geometry.dispose();
     this.dust.geometry.dispose(); this.dustMat.userData.halo?.dispose(); this.dustMat.dispose();

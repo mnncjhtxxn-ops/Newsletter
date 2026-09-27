@@ -9,7 +9,8 @@
 - Loads are scheduled in a fixed order (car, cold store, heat, battery). A different order could find a cheaper combined day; the explanation states the order rather than claiming optimality of the whole day.
 
 **Experience**
-- Hero objects are light-formed at overview scale and become hard-light holographic projections when revealed. The projection geometry is procedural (boxes, extrusions, cylinders): recognisable, not product-visualisation detail. The car's cabin in particular is a plain extrusion; a sculpted body would need modelled geometry.
+- The car, home and bakery use supplied 3D models (decimated to 24k–50k triangles, geometry only) for both the ambient light-form and the projection; the turbine and battery remain procedural. The house is a dense timber-frame model whose many small parts resist decimation below ~50k triangles.
+- Licences: the car is stated CC0 (archive name only), the house is Sketchfab Standard, the bakery has no licence metadata at all. See `assets/manifest.json`. The bakery is blocked for release until its licence is confirmed.
 - Projections are additive translucent double-sided meshes; on weak GPUs they are the most expensive thing on screen. Only one is ever visible at a time.
 - Only one scenario exists (Larkfield Street). Presets for a business day or a fleet are not built.
 - Sound is a small synthesised layer with no authored composition.
