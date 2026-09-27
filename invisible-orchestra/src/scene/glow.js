@@ -48,7 +48,8 @@ void main() {
   vNear = smoothstep(uTouchR * 1.6, 0.0, dist);
   vec4 mv = viewMatrix * world;
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = aSize * uSize * uPixelRatio * (220.0 / max(1.0, -mv.z)) * mix(1.0, 3.8, uHalo);
+  // clamp so a strand passing close to the viewer never balloons into a blob
+  gl_PointSize = min(aSize * uSize * uPixelRatio * (220.0 / max(1.0, -mv.z)), 26.0 * uPixelRatio) * mix(1.0, 3.8, uHalo);
   vTwinkle = 0.55 + 0.45 * sin(uTime * 1.7 + aPhase * 12.566);
   vFill = aFill;
 }
@@ -70,7 +71,7 @@ void main() {
   float filled = step(vFill, uFillLevel);
   vec3 col = mix(uColor, uColorHot, uActivity * 0.85);
   float a = t.a * uOpacity * (0.35 + 0.65 * vTwinkle) * (0.35 + 0.65 * filled) * (0.55 + 0.45 * uActivity + vNear * 0.6);
-  a *= mix(1.0, 0.07 + 0.07 * uActivity, uHalo);
+  a *= mix(1.0, 0.05 + 0.05 * uActivity, uHalo);
   gl_FragColor = vec4(col * (0.6 + 0.45 * uActivity + vNear * 0.5), a);
 }
 `;

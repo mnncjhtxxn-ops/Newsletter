@@ -213,3 +213,9 @@ button { cursor: pointer; }
   #controls { flex-wrap: wrap; justify-content: flex-end; max-width: 92vw; }
 }
 #staff .credits { font-size: 10px; line-height: 1.4; color: var(--ink-faint); border-top: 1px solid var(--card-border); padding-top: 8px; }
+
+#hours div { position: absolute; transform: translate(-50%, -50%); font-size: 12px; letter-spacing: 0.14em; color: var(--ink-faint); opacity: 0; transition: opacity 0.4s; white-space: nowrap; }
+#hint { position: absolute; left: 50%; bottom: 176px; transform: translateX(-50%); display: flex; gap: 22px; padding: 12px 20px; border-radius: 22px; background: var(--card); border: 1px solid var(--card-border); backdrop-filter: blur(12px); font-size: 14px; color: var(--ink-dim); white-space: nowrap; animation: toastIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#hint b { color: var(--info); font-weight: 600; }
+#hint.fade { opacity: 0; transition: opacity 1s; }
+@media (max-aspect-ratio: 1/1), (max-width: 760px) { #hint { flex-direction: column; gap: 6px; bottom: 150px; font-size: 13px; } }

@@ -12,8 +12,9 @@ export class Field {
     this.ribbons = [];
     const R = (a) => (Math.random() * 2 - 1) * a;
     for (let k = 0; k < count; k++) {
-      const from = new THREE.Vector3(R(26), R(14) - 2, R(16) - 10);
-      const to = new THREE.Vector3(R(26), R(14) - 2, R(16) - 10);
+      // endpoints on a shell around the viewer, so strands pass close by and far away
+      const shell = () => { const a = Math.random() * Math.PI * 2, r = 5 + Math.random() * 19; return new THREE.Vector3(Math.sin(a) * r, R(6) + 1, -Math.cos(a) * r); };
+      const from = shell(), to = shell();
       const rb = new Ribbon({ from, to, color: k % 3 === 0 ? '#3aa7a0' : k % 3 === 1 ? '#2f6fa8' : '#3f8f6a', colorHot: '#9de2ff', bulge: 3 + Math.random() * 5, width: 1.2, maxKw: 1, count: perStrand, seed: k * 3.7 });
       rb.flow = 0.35 + Math.random() * 0.5;
       rb.mat.uniforms.uSize.value = 0.55;

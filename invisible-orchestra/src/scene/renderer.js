@@ -14,7 +14,7 @@ export function createRenderer(canvas, { profile = 'balanced' } = {}) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x05070f, 0.018);
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
-  camera.position.set(0, 1.5, 30);
+  camera.position.set(0, 0.4, 0);
   const state = { profile: PROFILES[profile] ? profile : 'balanced', width: 1, height: 1, pixelRatio: 1, bufferWidth: 1, bufferHeight: 1, camZ: 30 };
 
   function resize() {
@@ -33,8 +33,8 @@ export function createRenderer(canvas, { profile = 'balanced' } = {}) {
     camera.aspect = w / h;
     // keep the whole constellation in view on narrow screens
     const aspect = w / h;
-    camera.fov = aspect < 1 ? 56 : aspect < 1.4 ? 50 : 42;
-    state.camZ = aspect < 0.7 ? 64 : aspect < 1 ? 50 : aspect < 1.4 ? 36 : 30;
+    camera.fov = aspect < 1 ? 80 : aspect < 1.4 ? 66 : 58;
+    state.camZ = 0;
     camera.updateProjectionMatrix();
   }
   window.addEventListener('resize', resize);

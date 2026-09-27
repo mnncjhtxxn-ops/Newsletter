@@ -21,6 +21,10 @@ It is a single self-contained HTML file. It runs offline, from `file://`, with n
 
 There are exactly three signature gestures (touch, pull, change-and-replay), a visible pause button for those who prefer it, and a "score" strip at the bottom that doubles as an accessible alternative: tap a stave to open that participant, drag to move through the day.
 
+## Standing inside it
+
+The viewer stands at the centre of the sculpture. Objects surround you at different depths and heights, strands pass close by, and dragging empty space turns your head. The day itself is a ring around you at horizon level: 96 quarter-hour beads, one arc per participant, lit where that participant is actually scheduled, with the playhead sweeping round as the night unfolds (18:00 behind you, midnight to the left, 06:00 ahead, midday to the right). When you change a promise and release, the links whose schedule changed let go in a burst, the lit slots fly around the ring from their old times to their new ones, and the day starts again. Every mover is a real quarter-hour moving to a real new time.
+
 ## Made of light at every scale
 
 At overview scale every object is a cloud of light. When you pull one forward, its particles coalesce into a **hard-light projection**: solid translucent surfaces with bright edges, a faint scanline shimmer, an emitter ring beneath, and tiny dust motes drifting through the field. It is more substantial than the overview, and still unmistakably made of light. Release it and it dissolves back into the strands. The car, home and bakery come from supplied 3D models prepared by `tools/prepare-assets.py` (Blender's Python module: join, drop ground planes, decimate, normalise, quantise to int16) and embedded as compact geometry; the same mesh feeds the ambient point cloud (surface and crease-edge samples) and the projection, so the object that resolves is the one the visitor saw. The turbine and battery are procedural. Licence status per asset is in `assets/manifest.json`.

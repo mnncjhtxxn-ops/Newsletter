@@ -8,17 +8,19 @@ import { Hologram, HOLO_NODES } from './holograms.js';
  * identify participants, and the material's uniforms are driven each frame
  * by the simulation state (activity, fill level, ripple).
  */
+/** Place an object on the ring around the viewer: bearing in degrees (0 = straight ahead), distance, height. */
+const ring = (deg, r, y) => { const a = deg * Math.PI / 180; return [Math.sin(a) * r, y, -Math.cos(a) * r]; };
 export const NODE_DEFS = [
-  { id: 'wind', label: 'The wind', pos: [-15, 6.5, -9], color: '#5bd38c', hot: '#b6ffd2', shape: 'turbine', scale: 1.15, dim: 0.8 },
-  { id: 'sun', label: 'The rooftops', pos: [11.5, 8.5, -11], color: '#ffd166', hot: '#fff3c4', shape: 'sun', scale: 1.1 },
-  { id: 'grid', label: 'The wider grid', pos: [0, 12.5, -22], color: '#8fa3d9', hot: '#dfe7ff', shape: 'grid', scale: 1.6, dim: 0.3 },
-  { id: 'substation', label: "The street's cable", pos: [0, 5.5, -10], color: '#b9c8ff', hot: '#ffffff', shape: 'substation', scale: 1.0, dim: 0.62 },
-  { id: 'score', label: 'The orchestra', pos: [0, 0.6, -2.5], color: '#9fe9ff', hot: '#ffffff', shape: 'score', scale: 0.9, info: true, dim: 0.45 },
-  { id: 'battery', label: 'The home battery', pos: [2.5, -2.6, 1.5], color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 1.0, dim: 0.5 },
-  { id: 'car', label: 'Your car', pos: [10, -3.4, 3.5], color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.25, dim: 0.7, size: 0.6 },
-  { id: 'home', label: 'Your home', pos: [-9.5, -3.2, 3.5], color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.5, dim: 0.65, size: 0.6 },
-  { id: 'bakery', label: 'The bakery', pos: [14, 1.8, -3.5], color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.05, dim: 0.6, size: 0.6 },
-  { id: 'street', label: 'The other homes', pos: [-13.5, 1.2, -3.5], color: '#b7a6f2', hot: '#e6dcff', shape: 'street', scale: 1.05, dim: 0.42 },
+  { id: 'wind', label: 'The wind', pos: ring(-72, 19, 5.5), color: '#5bd38c', hot: '#b6ffd2', shape: 'turbine', scale: 1.4, dim: 0.6, face: -72 },
+  { id: 'sun', label: 'The rooftops', pos: ring(66, 21, 8.5), color: '#ffd166', hot: '#fff3c4', shape: 'sun', scale: 1.3, face: 66 },
+  { id: 'grid', label: 'The wider grid', pos: ring(180, 24, 10), color: '#8fa3d9', hot: '#dfe7ff', shape: 'grid', scale: 2.0, dim: 0.3, face: 180 },
+  { id: 'substation', label: "The street's cable", pos: ring(6, 19, 3.2), color: '#b9c8ff', hot: '#ffffff', shape: 'substation', scale: 0.95, dim: 0.3, size: 0.65, face: 6 },
+  { id: 'score', label: 'The orchestra', pos: [0, -3.4, -1.2], color: '#9fe9ff', hot: '#ffffff', shape: 'score', scale: 0.9, info: true, dim: 0.35 },
+  { id: 'battery', label: 'The home battery', pos: ring(-14, 11.5, -2.6), color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 0.8, dim: 0.22, size: 0.5, face: -14 },
+  { id: 'car', label: 'Your car', pos: ring(-40, 12.5, -2.5), color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.35, dim: 0.5, size: 0.42, face: -40 },
+  { id: 'home', label: 'Your home', pos: ring(42, 12.5, -2.3), color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.5, dim: 0.45, size: 0.42, face: 42 },
+  { id: 'bakery', label: 'The bakery', pos: ring(-118, 13.5, -0.8), color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.15, dim: 0.45, size: 0.42, face: -118 },
+  { id: 'street', label: 'The other homes', pos: ring(124, 15, -0.2), color: '#b7a6f2', hot: '#e6dcff', shape: 'street', scale: 1.1, dim: 0.32, face: 124 },
 ];
 
 export class Nodes {
@@ -31,6 +33,7 @@ export class Nodes {
       const g = new THREE.Group();
       g.position.set(...def.pos);
       g.scale.setScalar(def.scale);
+      if (def.face != null) g.rotation.y = -def.face * Math.PI / 180; // long axis tangential to the ring, front toward the viewer
       const mat = pointsMaterial({ color: def.color, colorHot: def.hot, size: def.size || (def.info ? 0.55 : 0.85), opacity: def.dim || 0.9 });
       const shape = shapes[def.shape]();
       const pts = makePoints(shape.positions, mat, shape.fills);

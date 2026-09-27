@@ -100,9 +100,12 @@ export class Ribbon {
       const target = Math.min(1, Math.abs(this.flow) / this.maxKw);
       this.visual += (target - this.visual) * 0.08;
       const dir = this.flow >= 0 ? 1 : -1;
-      const activeCount = Math.round(this.count * (0.05 + 0.95 * Math.pow(this.visual, 0.7)));
-      const spd = (0.05 + 0.32 * this.visual) * timeScale + 0.004;
-      const w = this.width * (0.35 + 0.65 * this.visual);
+      // a burst: the link lets go and re-forms when its schedule has just changed
+      const b = this.burst || 0;
+      if (b > 0) this.burst = Math.max(0, b - dt * 0.55);
+      const activeCount = Math.round(this.count * (0.05 + 0.95 * Math.pow(Math.max(this.visual, b * 0.8), 0.7)));
+      const spd = ((0.05 + 0.32 * this.visual) * timeScale + 0.004) * (1 + 6 * b);
+      const w = this.width * (0.35 + 0.65 * this.visual) * (1 + 2.2 * b);
       for (let i = 0; i < this.count; i++) {
         let t = this.t[i] + dir * dt * spd * this.speed[i];
         if (t > 1) t -= 1; if (t < 0) t += 1;
@@ -114,7 +117,7 @@ export class Ribbon {
         }
         arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z;
       }
-      this.mat.uniforms.uOpacity.value += ((0.25 + 0.75 * this.visual) * (opts.dim ?? 1) - this.mat.uniforms.uOpacity.value) * 0.08;
+      this.mat.uniforms.uOpacity.value += ((0.25 + 0.75 * Math.max(this.visual, b)) * (opts.dim ?? 1) - this.mat.uniforms.uOpacity.value) * 0.08;
     } else {
       // Information: a faint dotted trace (visible when frozen or revealed) + packets.
       const traceTarget = opts.trace ?? 0;
@@ -170,6 +173,7 @@ export function buildRibbons(nodes) {
   };
   const info = {};
   for (const id of ['car', 'home', 'bakery', 'battery', 'wind', 'substation', 'sun']) {
+    // information converges on the orchestra, which sits just beneath the viewer
     info[id] = new Ribbon({ from: P(id), to: P('score'), color: '#bff5ff', colorHot: '#ffffff', kind: 'info', bulge: 0.8, count: 160, seed: 20 + id.length });
   }
   return { energy, info };

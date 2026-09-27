@@ -10,6 +10,7 @@ import { RenderGovernor, LruCache, PROFILES } from './scene/governor.js';
 import { Nodes } from './scene/nodes.js';
 import { buildRibbons } from './scene/ribbons.js';
 import { Field } from './scene/field.js';
+import { DayRing } from './scene/dayring.js';
 import { Touch } from './scene/touch.js';
 import { Score } from './ui/score.js';
 import { Orchestra } from './ui/audio.js';
@@ -61,16 +62,21 @@ for (const k in ribbons.energy) R.scene.add(ribbons.energy[k].points);
 for (const k in ribbons.info) R.scene.add(ribbons.info[k].points);
 const prof = () => PROFILES[settings.profile];
 const field = new Field(R.scene, prof().fieldStrands, Math.round(prof().ambientParticles / prof().fieldStrands));
+const dayring = new DayRing(R.scene);
 const touch = new Touch(canvas);
 const score = new Score($('#scoreCanvas'), {});
 const audio = new Orchestra();
 
-const CAM_BASE = new THREE.Vector3(0, 1.5, 30);
-const LOOK_BASE = new THREE.Vector3(0, 0.8, -3);
-const camPos = CAM_BASE.clone();
-const camLook = LOOK_BASE.clone();
-const camPosTarget = CAM_BASE.clone();
-const camLookTarget = LOOK_BASE.clone();
+/* The viewer stands at the centre of the sculpture. The camera has a yaw
+   (where you are looking around the ring), a pitch, and a small dolly
+   towards the object you are inspecting. Dragging empty space turns your head. */
+const EYE = new THREE.Vector3(0, 0.4, 0);
+const cam = { yaw: 0, pitch: 0.02, dolly: 0, yawT: 0, pitchT: 0.02, dollyT: 0, userYaw: 0, userPitch: 0 };
+const camPos = EYE.clone();
+const camLook = new THREE.Vector3(0, 0.4, -1);
+function forwardOf(yaw, pitch, out = new THREE.Vector3()) { return out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)); }
+function bearingOf(v) { return { yaw: Math.atan2(v.x, -v.z), pitch: Math.atan2(v.y - EYE.y, Math.hypot(v.x, v.z)), dist: v.distanceTo(EYE) }; }
+function wrapAngle(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
 
 /* ------------------------------------------------------------------ */
 /* App state                                                             */
@@ -108,7 +114,7 @@ const el = {
 };
 
 // Labels: one per node, positioned every frame.
-const LABEL_OFFSET = { wind: 128, sun: 78, grid: 64, substation: 104, score: 40, battery: 66, car: 70, home: 84, bakery: 80, street: 66 };
+const LABEL_OFFSET = { wind: 120, sun: 78, grid: 64, substation: 110, score: 40, battery: 90, car: 84, home: 96, bakery: 96, street: 76 };
 const labelEls = {};
 for (const id of Object.keys(nodes.byId)) {
   if (id === 'score') continue;
@@ -148,6 +154,7 @@ function accept(input, sim, { replay = false } = {}) {
   app.prevSim = app.sim;
   app.sim = sim;
   score.setSim(app.sim, replay ? app.prevSim : null);
+  dayring.setSim(app.sim);
   renderCards();
   renderPromise();
   if (replay) {
@@ -155,7 +162,21 @@ function accept(input, sim, { replay = false } = {}) {
     app.decisionCursor = 0;
     app.replays++;
     app.mode = 'replay';
-    app.timeScale = app.paused ? 0 : 1;
+    // Choreography: the links whose schedule changed let go, the lit slots fly
+    // around the ring to their new times, then the day starts again.
+    const changedLinks = { ev: 'toCar', heat: 'toHome', bakery: 'toBakery', battery: 'battery' };
+    let anyChange = false;
+    if (app.prevSim) {
+      for (const k in changedLinks) {
+        const a = app.prevSim.schedules[k], b = app.sim.schedules[k];
+        let diff = false; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 1e-6) { diff = true; break; }
+        if (diff) { ribbons.energy[changedLinks[k]].burst = 1; ribbons.info[{ ev: 'car', heat: 'home', bakery: 'bakery', battery: 'battery' }[k]]?.pulse(-1); anyChange = true; }
+      }
+      const flights = dayring.migrate(app.prevSim, app.sim);
+      anyChange = anyChange || flights > 0;
+    }
+    app.choreoUntil = anyChange ? performance.now() + 2300 : 0; // wall clock: the pause must not stretch on a slow frame rate
+    app.timeScale = app.paused ? 0 : anyChange ? 0 : 1;
     app.lessonsAuto = false;
     showToast();
     el.chipChanged.classList.remove('hidden');
@@ -522,7 +543,7 @@ function closeReveal({ replay = false } = {}) {
   let accepted = true;
   if (replay) accepted = commitDraft();
   else app.mode = 'live';
-  if (!app.paused && accepted && !app.pending) app.timeScale = 1;
+  if (!app.paused && accepted && !app.pending && !app.choreoUntil) app.timeScale = 1;
   if (accepted && !app.pending) audio.setFrozen(false);
 }
 
@@ -539,6 +560,10 @@ function showUI(show) {
 function leaveAttract() {
   if (app.mode !== 'attract') return;
   app.mode = 'live';
+  const hint = $('#hint');
+  hint.classList.remove('hidden', 'fade');
+  clearTimeout(app.hintTimer);
+  app.hintTimer = setTimeout(() => { hint.classList.add('fade'); setTimeout(() => hint.classList.add('hidden'), 1100); }, 7000);
   el.attract.classList.remove('show');
   showUI(true);
   if (settings.sound) { audio.enable(); el.btnSound.classList.add('on'); }
@@ -552,6 +577,7 @@ function resetToAttract() {
   app.prevSim = null;
   app.sim = plan(app.input);
   score.setSim(app.sim, null);
+  dayring.setSim(app.sim);
   renderCards(); renderPromise();
   app.slotF = 0; app.decisionCursor = 0; app.replays = 0; app.paused = false; app.timeScale = 1;
   app.reveal = { id: null, pull: 0, dirty: false, condense: 0 };
@@ -562,6 +588,8 @@ function resetToAttract() {
   el.btnPause.classList.remove('paused');
   el.captions.innerHTML = '';
   el.attract.classList.add('show');
+  $('#hint').classList.add('hidden');
+  cam.userYaw = 0; cam.userPitch = 0;
   showUI(false);
   audio.disable(); el.btnSound.classList.remove('on');
   app.idleShown = false;
@@ -581,9 +609,10 @@ function worldAt(x, y, nodeId) {
   ndc.set((x / R.state.width) * 2 - 1, -(y / R.state.height) * 2 + 1);
   ray.setFromCamera(ndc, R.camera);
   const out = new THREE.Vector3();
-  if (nodeId) { const w = nodes.get(nodeId).world; plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), w); }
-  else plane.set(new THREE.Vector3(0, 0, 1), 0);
-  if (!ray.ray.intersectPlane(plane, out)) out.set(0, 0, 0);
+  const fwd = forwardOf(cam.yaw, cam.pitch);
+  if (nodeId) plane.setFromNormalAndCoplanarPoint(fwd.clone().negate(), nodes.get(nodeId).world);
+  else plane.setFromNormalAndCoplanarPoint(fwd.clone().negate(), camPos.clone().add(fwd.multiplyScalar(9)));
+  if (!ray.ray.intersectPlane(plane, out)) out.copy(camPos).add(forwardOf(cam.yaw, cam.pitch).multiplyScalar(9));
   return out;
 }
 touch.on('down', ({ x, y, node }) => {
@@ -593,6 +622,7 @@ touch.on('down', ({ x, y, node }) => {
   if (app.mode === 'reveal') return; // the panel owns the interaction
   app.holding = true;
   app.timeScale = 0;
+  app.touch.lastX = x; app.touch.lastY = y;
   app.touch.world.copy(worldAt(x, y, node));
   app.touch.x = x; app.touch.y = y;
   app.touch.targetStrength = 1;
@@ -601,6 +631,14 @@ touch.on('down', ({ x, y, node }) => {
 });
 touch.on('move', ({ x, y, node }) => {
   if (!app.holding) return;
+  if (!node && app.touch.lastX != null) {
+    // dragging empty space turns your head
+    const k = (R.camera.fov * Math.PI / 180) / R.state.height;
+    cam.userYaw = wrapAngle(cam.userYaw - (x - app.touch.lastX) * k);
+    cam.userPitch = clamp(cam.userPitch + (y - app.touch.lastY) * k * 0.7, -0.35, 0.5);
+    app.looked = true;
+  }
+  app.touch.lastX = x; app.touch.lastY = y;
   app.touch.x = x; app.touch.y = y;
   if (!node) app.touch.world.lerp(worldAt(x, y, null), 0.5);
 });
@@ -619,11 +657,14 @@ touch.on('pullend', ({ node, progress }) => {
 });
 touch.on('tap', ({ node }) => {
   app.holding = false;
+  if (app.looked) { app.looked = false; return; }
   if (app.mode === 'reveal') { if (node && node !== app.reveal.id) openReveal(node); return; }
   if (node) openReveal(node);
 });
 touch.on('up', () => {
   app.holding = false;
+  app.touch.lastX = null;
+  setTimeout(() => { app.looked = false; }, 50);
   app.touch.targetStrength = 0;
   if (app.mode !== 'reveal' && !app.paused) { setTimeout(() => { if (!app.holding && app.mode !== 'reveal' && !app.paused && !app.pending) { app.timeScale = 1; audio.setFrozen(false); } }, 700); }
 });
@@ -785,36 +826,37 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   ts.r += ((inReveal ? 6 : ts.targetStrength ? 7.5 : 0) - ts.r) * k * 0.7;
   if (inReveal) ts.world.lerp(nodes.get(app.reveal.id).world, k);
 
-  // camera
+  // choreography gate: the day restarts once the slots have flown
+  if (app.choreoUntil && performance.now() >= app.choreoUntil) { app.choreoUntil = 0; if (!app.paused && !app.pending && app.mode !== 'reveal') app.timeScale = 1; }
+
+  // camera: standing at the centre, looking around
   const drift = frozen || reducedMotion ? 0 : 1;
+  const landscape = R.state.width / R.state.height > 1 && R.state.width > 760;
   if (app.mode === 'reveal' && app.reveal.id) {
-    // Frame the projection at a fixed screen position beside the panel (landscape)
-    // or above the sheet (portrait), whatever the object's place in the constellation.
-    const w = nodes.get(app.reveal.id).world;
-    const landscape = R.state.width / R.state.height > 1 && R.state.width > 760;
-    const dist = landscape ? 13 : R.state.camZ * 0.62;
-    const dir = new THREE.Vector3(0, 1.5, R.state.camZ).sub(w).normalize();
+    // turn to face the object and step a little towards it, placing it beside the panel (landscape) or above the sheet (portrait)
+    const b = bearingOf(nodes.get(app.reveal.id).world);
     const vFov = THREE.MathUtils.degToRad(R.camera.fov);
-    const hWorld = 2 * dist * Math.tan(vFov / 2);
-    const wWorld = hWorld * R.camera.aspect;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * R.camera.aspect);
     const panelFrac = landscape ? 440 / R.state.width : 0;
     const targetX = landscape ? (1 - panelFrac) * 0.5 : 0.5;
-    const targetY = landscape ? 0.44 : 0.30;
-    const forward = dir.clone().negate();
-    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
-    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-    const shift = right.multiplyScalar((0.5 - targetX) * wWorld).add(up.multiplyScalar((targetY - 0.5) * hWorld));
-    camPosTarget.copy(w).add(dir.multiplyScalar(dist)).add(shift);
-    camLookTarget.copy(w).add(shift);
+    const targetY = landscape ? 0.46 : 0.30;
+    cam.yawT = b.yaw + (0.5 - targetX) * hFov;
+    cam.pitchT = b.pitch - (0.5 - targetY) * vFov * 0.9;
+    cam.dollyT = b.dist * (landscape ? 0.42 : 0.3);
   } else {
-    camPosTarget.set(Math.sin(app.t * 0.05) * 1.6 * drift, 1.5 + Math.sin(app.t * 0.037) * 0.6 * drift, R.state.camZ + Math.sin(app.t * 0.021) * 1.2 * drift);
-    camLookTarget.copy(LOOK_BASE);
+    cam.yawT = cam.userYaw + Math.sin(app.t * 0.045) * 0.55 * drift;
+    cam.pitchT = cam.userPitch + 0.02 + Math.sin(app.t * 0.031) * 0.03 * drift;
+    cam.dollyT = 0;
   }
-  const ease = 1 - Math.exp(-dtRaw * (reducedMotion ? 18 : 2.6)); // time-based, frame-rate independent
-  camPos.lerp(camPosTarget, ease);
-  camLook.lerp(camLookTarget, ease);
-  const camDist = camPos.distanceTo(camPosTarget) + camLook.distanceTo(camLookTarget);
-  if (camDist < 0.02) { camPos.copy(camPosTarget); camLook.copy(camLookTarget); }
+  const ease = 1 - Math.exp(-dtRaw * (reducedMotion ? 18 : 2.4));
+  cam.yaw += wrapAngle(cam.yawT - cam.yaw) * ease;
+  cam.pitch += (cam.pitchT - cam.pitch) * ease;
+  cam.dolly += (cam.dollyT - cam.dolly) * ease;
+  const camDist = Math.abs(wrapAngle(cam.yawT - cam.yaw)) * 8 + Math.abs(cam.pitchT - cam.pitch) * 8 + Math.abs(cam.dollyT - cam.dolly);
+  if (camDist < 0.02) { cam.yaw = cam.yawT; cam.pitch = cam.pitchT; cam.dolly = cam.dollyT; }
+  const fwd = forwardOf(cam.yaw, cam.pitch);
+  camPos.copy(EYE).add(fwd.clone().multiplyScalar(cam.dolly));
+  camLook.copy(camPos).add(fwd);
   R.camera.position.copy(camPos);
   R.camera.lookAt(camLook);
 
@@ -842,6 +884,8 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   for (const k2 in E) E[k2].update(dtRaw, app.timeScaleCur, { dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
   for (const k2 in ribbons.info) ribbons.info[k2].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k2 === revealId ? 1 : 0.25) : 0.7) : 0.08 });
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
+  dayring.update(dtRaw, app.slotF, visualTime);
+  dayring.setDim(revealId ? 0.45 : app.mode === 'attract' ? 0.7 : 1);
   R.render();
 
   // audio follows activity
@@ -862,7 +906,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     let op = 0;
     const pendingNode = { ev: 'car', heat: 'home', bakery: 'bakery', battery: 'battery' };
     const pending = !!app.pending && app.pending.loads.some((l) => pendingNode[l] === id);
-    if (showLabels) {
+    if (showLabels && p.visible && Math.abs(p.x - R.state.width / 2) < R.state.width * 0.6) {
       if (app.mode === 'reveal') op = id === revealId ? 1 : 0.28;
       else if (app.holding || app.scrubbing || app.paused) op = app.holding ? clamp(1.15 - Math.hypot(p.x - ts.x, p.y - ts.y) / 520, 0.3, 1) : 0.9;
       else op = pending ? 0.75 : 0;
@@ -871,7 +915,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     L.root.classList.toggle('pending', pending);
     L.root.classList.toggle('hot', id === revealId);
     if (op > 0.01) {
-      const near = clamp(30 / camPos.distanceTo(nodes.get(id).world), 0.6, 3);
+      const near = clamp(13 / camPos.distanceTo(nodes.get(id).world), 0.5, 2.6);
       L.root.style.transform = `translate(${p.x.toFixed(1)}px, ${(p.y + LABEL_OFFSET[id] * near).toFixed(1)}px) translate(-50%, 0)`;
       if (textNow || L.stale) { const t = stateText(id, f, sim); if (t !== L.text) { L.state.textContent = t; L.text = t; } L.stale = false; }
       L.state.classList.toggle('over', id === 'substation' && f.feeder > SCENARIO.feederLimitKw);
@@ -881,6 +925,17 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     const c = captionPool[k2]; const p = proj[c.node];
     if (now - c.born > 5600) { c.el.remove(); captionPool.splice(k2, 1); continue; }
     c.el.style.left = `${p.x.toFixed(1)}px`; c.el.style.top = `${(p.y - LABEL_OFFSET[c.node] * 0.9).toFixed(1)}px`;
+  }
+  {
+    const marks = dayring.hourMarks();
+    const hs = $('#hours').children;
+    const tmp = new THREE.Vector3();
+    marks.forEach((mk, i) => {
+      tmp.copy(mk.pos).project(R.camera);
+      const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.05 && Math.abs(tmp.y) < 1.05 && app.mode !== 'attract';
+      hs[i].style.opacity = vis ? 0.9 : 0;
+      if (vis) hs[i].style.transform = `translate(${((tmp.x * 0.5 + 0.5) * R.state.width).toFixed(1)}px, ${((-tmp.y * 0.5 + 0.5) * R.state.height).toFixed(1)}px) translate(-50%, -50%)`;
+    });
   }
   $('#chipWhy').classList.toggle('hidden', app.mode === 'attract' || app.mode === 'reveal' || !!app.pending);
   if (app.mode !== 'attract' && (textNow || frozen)) {
@@ -895,7 +950,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
 
   // settled? (camera, condense, ripple, time scale and captions all at rest)
   if (Math.abs(ts.strength - ripTarget) < 0.01) ts.strength = ripTarget;
-  const settled = camDist < 0.02 && app.reveal.condense === wantCondense && ts.strength === ripTarget && app.timeScaleCur === app.timeScale && captionPool.length === 0 && (!ts.targetStrength || app.mode === 'reveal');
+  const settled = camDist < 0.02 && !dayring.choreo && !app.choreoUntil && app.reveal.condense === wantCondense && ts.strength === ripTarget && app.timeScaleCur === app.timeScale && captionPool.length === 0 && (!ts.targetStrength || app.mode === 'reveal');
   diag.settle = { camDist, condense: app.reveal.condense, wantCondense, rip: ts.strength, ripTarget, tsc: app.timeScaleCur, tsT: app.timeScale, captions: captionPool.length, holding: app.holding, scrubbing: app.scrubbing, lastInputAgo: now - lastInputFrame, settled };
   settledFrames = settled ? settledFrames + 1 : 0;
   const mode = chooseMode(settledFrames > 2, now);
@@ -929,5 +984,5 @@ setInterval(() => {
 }, 1000);
 
 // Expose a tiny inspection hook for testing on the station (no UI).
-window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache };
+window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam };
 window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons;
