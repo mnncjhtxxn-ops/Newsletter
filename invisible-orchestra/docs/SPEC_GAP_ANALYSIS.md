@@ -21,3 +21,21 @@
 | Loopback server launcher | Not needed: single-file route (spec §11.2 option 3), tested from `file://` |
 | Twelve-hour soak, 500 cycles, hardware profiling, human evaluation | NOT RUN / BLOCKED (see TEST_RESULTS.md) |
 | TypeScript | Not used; plain ES modules bundled with esbuild. A `.d.ts`-free codebase was a deliberate speed choice; converting is mechanical |
+
+## v1.1 optimised handover
+
+| v1.1 requirement | Status |
+|---|---|
+| Planner event-driven, never in the render loop | Done (E01) |
+| Planner in a Web Worker | **Deviation:** main thread, measured 2.3 ms for the whole day; see PERFORMANCE.md |
+| One in-flight + newest pending request, stale-reply defence | N/A (synchronous planner) |
+| 32-entry LRU physics cache, permission never cached | Done (E02, E04) |
+| Reset clears visitor intent/approval | Done |
+| Four clocks: wall, model, visual, measurement | Done; fps from raw gaps, visual time frozen in READING |
+| Frame policy 30 / 60 / on-demand / hidden, one rAF owner | Done (`src/scene/governor.js`, E06, E07) |
+| Pixel budget after DPR, resize only on change | Done (E08) |
+| Ambient decorative particles ≤ 300 / 800 | Done (field strands sized from the profile) |
+| DOM updates throttled to 2–4 Hz | Done (label and clock text at 4 Hz, positions per rendered frame only) |
+| Adaptive quality with hysteresis | Not implemented |
+| GPU timer queries | Not implemented |
+| Authoritative visual clarification (coalesce, no flicker, no generic wireframe, ambient recognisable) | Done: flicker removed, scanlines near-invisible, edges in the object's own colour, sculpted car body; selection never re-plans |

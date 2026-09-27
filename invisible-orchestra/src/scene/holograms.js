@@ -42,8 +42,8 @@ void main() {
   // the projection assembles from the ground up as it condenses
   float rise = smoothstep(uBuild, uBuild - 0.25, (vL.y - uBuildY0) / (uBuildY1 - uBuildY0));
   float seam = smoothstep(0.0, 0.05, abs(((vL.y - uBuildY0) / (uBuildY1 - uBuildY0)) - uBuild)) ;
-  float scan = 0.87 + 0.13 * sin(vW.y * 46.0 - uTime * 2.6);
-  float flicker = 0.96 + 0.04 * sin(uTime * 19.0) * sin(uTime * 5.3);
+  float scan = 0.94 + 0.06 * sin(vW.y * 30.0 - uTime * 1.2);
+  float flicker = 1.0;
   vec3 col = mix(uColor, uColorHot, f);
   float a = (0.2 + 0.9 * f) * scan * flicker * uOpacity * rise;
   a += (1.0 - seam) * 0.9 * uOpacity * step(0.001, uBuild) * step(uBuild, 0.999);
@@ -85,14 +85,36 @@ function prism(w, h, d) {
 const BUILDERS = {
   car() {
     const parts = [];
-    const body = new THREE.BoxGeometry(2.4, 0.55, 1.1, 1, 1, 1); body.translate(0, -0.1, 0); parts.push(body);
-    const cabin = new THREE.Shape();
-    cabin.moveTo(-0.95, 0.17); cabin.lineTo(-0.5, 0.65); cabin.lineTo(0.7, 0.65); cabin.lineTo(1.12, 0.17); cabin.lineTo(-0.95, 0.17);
-    const cg = new THREE.ExtrudeGeometry(cabin, { depth: 1.0, bevelEnabled: false }); cg.translate(0, 0, -0.5); parts.push(cg);
-    for (const x of [-0.8, 0.8]) for (const z of [0.56, -0.56]) { const w = new THREE.CylinderGeometry(0.23, 0.23, 0.14, 24); w.rotateX(Math.PI / 2); w.translate(x, -0.42, z); parts.push(w); }
-    const port = new THREE.CylinderGeometry(0.07, 0.07, 0.06, 12); port.rotateX(Math.PI / 2); port.translate(-1.0, 0.05, 0.56); parts.push(port);
-    for (const z of [0.35, -0.35]) { const l = new THREE.SphereGeometry(0.07, 10, 8); l.translate(1.2, -0.05, z); parts.push(l); }
-    return { parts, y0: -0.7, y1: 0.7, dust: [2.4, 1.3, 1.2] };
+    // Side profile of a compact hatchback (x = length, y = height), extruded across the width with a soft bevel.
+    const p = new THREE.Shape();
+    p.moveTo(-1.22, -0.36);
+    p.lineTo(-1.24, -0.05);
+    p.quadraticCurveTo(-1.24, 0.12, -1.1, 0.16);   // tailgate
+    p.quadraticCurveTo(-0.9, 0.22, -0.62, 0.62);  // rear glass
+    p.quadraticCurveTo(-0.5, 0.7, -0.3, 0.7);     // roof
+    p.lineTo(0.35, 0.7);
+    p.quadraticCurveTo(0.6, 0.68, 0.9, 0.3);      // windscreen
+    p.quadraticCurveTo(1.05, 0.2, 1.22, 0.14);    // bonnet
+    p.quadraticCurveTo(1.28, 0.05, 1.26, -0.1);   // nose
+    p.lineTo(1.24, -0.36);
+    p.quadraticCurveTo(1.0, -0.4, 0.98, -0.36);
+    p.absarc(0.78, -0.36, 0.27, 0, Math.PI, true);  // front wheel arch
+    p.lineTo(-0.51, -0.36);
+    p.absarc(-0.78, -0.36, 0.27, 0, Math.PI, true); // rear wheel arch
+    p.lineTo(-1.22, -0.36);
+    const body = new THREE.ExtrudeGeometry(p, { depth: 0.98, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.06, bevelSegments: 3, curveSegments: 12 });
+    body.translate(0, 0, -0.49); parts.push(body);
+    // glazing outlines as thin shells so the edges read
+    const glass = new THREE.Shape();
+    glass.moveTo(-0.58, 0.24); glass.quadraticCurveTo(-0.5, 0.6, -0.28, 0.63); glass.lineTo(0.33, 0.63); glass.quadraticCurveTo(0.55, 0.6, 0.82, 0.26); glass.lineTo(-0.58, 0.24);
+    const g = new THREE.ExtrudeGeometry(glass, { depth: 1.02, bevelEnabled: false, curveSegments: 10 }); g.translate(0, 0, -0.51); parts.push(g);
+    for (const x of [-0.78, 0.78]) for (const z of [0.52, -0.52]) {
+      const w = new THREE.CylinderGeometry(0.25, 0.25, 0.16, 28); w.rotateX(Math.PI / 2); w.translate(x, -0.36, z); parts.push(w);
+      const hub = new THREE.CylinderGeometry(0.1, 0.1, 0.18, 12); hub.rotateX(Math.PI / 2); hub.translate(x, -0.36, z); parts.push(hub);
+    }
+    const port = new THREE.CylinderGeometry(0.07, 0.07, 0.05, 14); port.rotateX(Math.PI / 2); port.translate(-1.0, 0.06, 0.53); parts.push(port);
+    for (const z of [0.34, -0.34]) { const l = new THREE.BoxGeometry(0.06, 0.09, 0.22); l.translate(1.24, 0.0, z); parts.push(l); }
+    return { parts, y0: -0.62, y1: 0.76, dust: [2.5, 1.4, 1.1] };
   },
   house() {
     const parts = [];
@@ -148,19 +170,19 @@ export class Hologram {
     this.mat = holoMaterial(def.color, def.hot);
     this.mat.uniforms.uBuildY0.value = built.y0;
     this.mat.uniforms.uBuildY1.value = built.y1;
-    this.edgeMat = new THREE.LineBasicMaterial({ color: new THREE.Color(def.hot), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+    this.edgeMat = new THREE.LineBasicMaterial({ color: new THREE.Color(def.color).lerp(new THREE.Color(def.hot), 0.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
     this.meshes = [];
     this.edges = [];
     for (const g of built.parts) {
       const m = new THREE.Mesh(g, this.mat); m.frustumCulled = false; this.group.add(m); this.meshes.push(m);
-      const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), this.edgeMat); e.frustumCulled = false; this.group.add(e); this.edges.push(e);
+      const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 40), this.edgeMat); e.frustumCulled = false; this.group.add(e); this.edges.push(e);
     }
     if (built.blades) {
       this.blades = new THREE.Group();
       this.blades.position.set(0, 1.45, 0.55);
       for (const g of bladesGeometry()) {
         const m = new THREE.Mesh(g, this.mat); m.frustumCulled = false; this.blades.add(m); this.meshes.push(m);
-        const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 28), this.edgeMat); e.frustumCulled = false; this.blades.add(e); this.edges.push(e);
+        const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 40), this.edgeMat); e.frustumCulled = false; this.blades.add(e); this.edges.push(e);
       }
       this.group.add(this.blades);
     }
@@ -195,7 +217,7 @@ export class Hologram {
     this.mat.uniforms.uTime.value = time;
     this.mat.uniforms.uBuild.value = Math.min(1, c * 1.15);
     this.mat.uniforms.uOpacity.value = Math.min(1, c * 1.2);
-    this.edgeMat.opacity = 0.7 * Math.pow(c, 1.5);
+    this.edgeMat.opacity = 0.5 * Math.pow(c, 1.5);
     this.baseMat.opacity = 0.35 * Math.pow(c, 2) * (0.85 + 0.15 * Math.sin(time * 1.4));
     this.rings[1].rotation.z = time * 0.3;
     const sc = 1 + 0.12 * c;

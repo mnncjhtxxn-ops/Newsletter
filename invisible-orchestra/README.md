@@ -89,12 +89,12 @@ Open `dist/invisible-orchestra.html` directly in Edge or Chrome. No server is ne
 
 | Key | Values | Meaning |
 |---|---|---|
-| `scale` | 0.5 / 0.75 / 1 | Internal resolution of the 3D scene. Text and controls stay crisp at native resolution. |
+| `profile` | economy / balanced / detail | Pixel budget, frame caps and ambient particle cap (see `docs/PERFORMANCE.md`). Text and controls stay crisp at native resolution. |
 | `timeout` | seconds, 0 = never | Inactivity before the "Still there?" prompt; the station returns to the attract screen 15 s later and resets every choice. |
 | `dayLength` | seconds | How long the imagined day takes to unfold (replays run 30 % faster). |
 | `sound` | 0 / 1 | Optional generative musical layer, synthesised, off by default. The story is complete without it. |
 
-Example: `invisible-orchestra.html#scale=0.75&timeout=120`. Staff can also triple-tap the top-left corner for an on-screen settings panel with a live frame-rate readout.
+Example: `invisible-orchestra.html#profile=economy&timeout=120`. Staff can also triple-tap the top-left corner for an on-screen settings panel with a live frame-rate readout.
 
 Keyboard, for testing on a laptop: space pauses, Escape closes the panel.
 
@@ -120,10 +120,11 @@ the full interaction loop with zero console errors; 60 automated visitor cycles 
 
 ## Performance design
 
-- Roughly 30k points per frame in a handful of draw calls; one shared shader program; additive sprites with a shared, procedurally drawn glow texture; a second "halo" pass per object gives bloom without post-processing.
-- The 3D canvas renders at an adjustable internal scale independent of the crisp HTML text layer.
-- Reset reuses the scene: no second animation loop, no duplicate input handlers, no re-created geometry.
-- The whole simulation for a day runs in well under a millisecond, so "release and replay" is instant.
+- One render governor owns `requestAnimationFrame`: 30 fps while the day plays, up to 60 during touch and transitions, render-on-change while a decision is held open, nothing while the page is hidden.
+- The drawing buffer is fitted to the profile's pixel budget with devicePixelRatio counted once; HTML stays at native resolution.
+- Planning runs only on a committed change (about 2 ms for the whole day) and never in the frame loop; identical inputs are served from a bounded cache, and permission is re-checked every time.
+- A handful of draw calls, one shared point shader, additive sprites with a procedurally drawn glow and a halo pass instead of post-processing bloom. Only one projection is ever visible.
+- Reset reuses the scene: no second loop, no duplicate handlers, no re-created geometry.
 
 ## Project layout
 

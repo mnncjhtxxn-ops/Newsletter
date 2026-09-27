@@ -1,0 +1,52 @@
+{
+  "version": "1.1.0",
+  "status": "Proposed starting budgets; no kiosk GPU benchmark performed",
+  "economy": {
+    "maxPixels": 1440000,
+    "maxDPR": 1.5,
+    "rates": {
+      "ATTRACT": 30,
+      "ACTIVE": 30,
+      "READING": 0,
+      "PAUSED": 0,
+      "HIDDEN": 0
+    },
+    "transmissionResolutionScale": 0.5,
+    "maxTransmissionObjects": 1,
+    "shadowMapSize": 0,
+    "maxAmbientParticles": 300,
+    "estimatedGpuMemoryMiB": 192
+  },
+  "balanced": {
+    "maxPixels": 2073600,
+    "maxDPR": 1.5,
+    "rates": {
+      "ATTRACT": 30,
+      "ACTIVE": 60,
+      "READING": 0,
+      "PAUSED": 0,
+      "HIDDEN": 0
+    },
+    "transmissionResolutionScale": 0.5,
+    "maxTransmissionObjects": 2,
+    "shadowMapSize": 1024,
+    "maxAmbientParticles": 800,
+    "estimatedGpuMemoryMiB": 256
+  },
+  "detail": {
+    "maxPixels": 3686400,
+    "maxDPR": 1.5,
+    "rates": {
+      "ATTRACT": 30,
+      "ACTIVE": 60,
+      "READING": 0,
+      "PAUSED": 0,
+      "HIDDEN": 0
+    },
+    "transmissionResolutionScale": 0.75,
+    "maxTransmissionObjects": 2,
+    "shadowMapSize": 2048,
+    "maxAmbientParticles": 800,
+    "estimatedGpuMemoryMiB": 384
+  }
+}

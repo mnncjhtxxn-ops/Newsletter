@@ -159,7 +159,7 @@ button { cursor: pointer; }
 #staff .head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
 #staff label { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: var(--ink-dim); }
 #staff select { background: #0e1426; border: 1px solid var(--card-border); border-radius: 8px; padding: 6px 8px; min-height: 36px; }
-#staff .fps { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+#staff .fps { color: var(--ink-faint); font-variant-numeric: tabular-nums; font-size: 11px; line-height: 1.5; }
 #staff .reset { min-height: 40px; border-radius: 10px; border: 1px solid var(--warn); background: transparent; color: var(--warn); }
 #corner { pointer-events: auto !important; position: absolute; left: 0; top: 0; width: 64px; height: 64px; }
 

@@ -6,6 +6,7 @@ import {
   EV_DEPARTURE_OPTIONS, EV_TARGET_OPTIONS, EV_PRICE_CAP_OPTIONS, BAKERY_OPENING_OPTIONS,
 } from './sim/scenario.js';
 import { createRenderer } from './scene/renderer.js';
+import { RenderGovernor, LruCache, PROFILES } from './scene/governor.js';
 import { Nodes } from './scene/nodes.js';
 import { buildRibbons } from './scene/ribbons.js';
 import { Field } from './scene/field.js';
@@ -21,12 +22,13 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 /* ------------------------------------------------------------------ */
 /* Settings (station-level, persisted best-effort; URL hash overrides) */
 /* ------------------------------------------------------------------ */
-const settings = { scale: 1, timeout: 90, dayLength: 110, sound: 0 };
+const settings = { profile: 'balanced', timeout: 90, dayLength: 110, sound: 0 };
 try {
   const saved = JSON.parse(localStorage.getItem('orchestra.settings') || '{}');
   Object.assign(settings, saved);
 } catch (e) { /* private mode or file:// – fine */ }
-for (const [k, v] of new URLSearchParams(location.hash.slice(1))) if (k in settings) settings[k] = Number(v);
+for (const [k, v] of new URLSearchParams(location.hash.slice(1))) if (k in settings) settings[k] = k === 'profile' ? v : Number(v);
+if (!PROFILES[settings.profile]) settings.profile = 'balanced';
 function saveSettings() { try { localStorage.setItem('orchestra.settings', JSON.stringify(settings)); } catch (e) { /* ignore */ } }
 
 /* ------------------------------------------------------------------ */
@@ -50,14 +52,15 @@ function fatal(title, text) {
   const ext = gl2.getExtension('WEBGL_lose_context');
   if (ext) ext.loseContext();
 }
-const R = createRenderer(canvas, { scale: settings.scale });
+const R = createRenderer(canvas, { profile: settings.profile });
 canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); if (!$('#fatal')) fatal('One moment.', 'The graphics context was interrupted. Recovering…'); });
 canvas.addEventListener('webglcontextrestored', () => { $('#fatal')?.remove(); });
 const nodes = new Nodes(R.scene);
 const ribbons = buildRibbons(nodes);
 for (const k in ribbons.energy) R.scene.add(ribbons.energy[k].points);
 for (const k in ribbons.info) R.scene.add(ribbons.info[k].points);
-const field = new Field(R.scene, 22);
+const prof = () => PROFILES[settings.profile];
+const field = new Field(R.scene, prof().fieldStrands, Math.round(prof().ambientParticles / prof().fieldStrands));
 const touch = new Touch(canvas);
 const score = new Score($('#scoreCanvas'), {});
 const audio = new Orchestra();
@@ -119,8 +122,26 @@ for (const id of Object.keys(nodes.byId)) {
 /* ------------------------------------------------------------------ */
 /* Simulation plumbing                                                  */
 /* ------------------------------------------------------------------ */
+/* Planning is event-driven: it runs on a committed change, never in the frame loop.
+   Identical committed inputs are served from a bounded cache (physics only —
+   permission is decided afresh every time by reviewAuthority). */
+const planCache = new LruCache(32);
+const diag = { solves: 0, cacheHits: 0, solveMs: 0 };
+function plan(input) {
+  const key = JSON.stringify({ p: input.promises, n: { ev: input.permissions.ev === 'never', heat: input.permissions.heat === 'never', bakery: input.permissions.bakery === 'never', battery: input.permissions.battery === 'never' }, r: input.resolutions, v: 2 });
+  const hit = planCache.get(key);
+  if (hit) { diag.cacheHits++; return hit; }
+  const t0 = performance.now();
+  const r = simulate(input);
+  diag.solveMs = performance.now() - t0;
+  diag.solves++;
+  planCache.set(key, r);
+  return r;
+}
+
 /** Put a new agreed intent and its plan into the world. */
 function accept(input, sim, { replay = false } = {}) {
+  if (typeof gov !== 'undefined') wake();
   app.accepted = clone(input);
   app.input = clone(input);
   app.pending = null;
@@ -152,7 +173,7 @@ function accept(input, sim, { replay = false } = {}) {
  * proposal waits. Nothing is dispatched while it waits.
  */
 function commitDraft() {
-  const proposed = simulate(app.input);
+  const proposed = plan(app.input);
   const review = reviewAuthority({ accepted: app.sim.schedules, proposed: proposed.schedules, permissions: app.input.permissions });
   if (review.status === PlanStatus.AWAITING_PERMISSION) {
     app.pending = { input: clone(app.input), sim: proposed, loads: review.pending };
@@ -174,6 +195,7 @@ function approvePending() {
   audio.setFrozen(false);
 }
 function declinePending() {
+  if (typeof gov !== 'undefined') wake();
   if (!app.pending) return;
   const wanted = app.pending.input.promises;
   app.pending = null;
@@ -375,6 +397,7 @@ function showToast(auto = true) {
   if (auto) toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 11000);
 }
 function showLessons() {
+  if (typeof gov !== 'undefined') wake();
   const ls = lessons(app.sim, app.prevSim, { pending: !!app.pending, declined: app.lastDeclined });
   el.lessons.querySelector('ol').innerHTML = ls.map((l, i) => `<li><span class="n">${i + 1}</span><span>${l.text}</span></li>`).join('');
   el.lessons.classList.remove('hidden');
@@ -407,6 +430,7 @@ function getIn(o, path) { return path.reduce((a, k) => a[k], o); }
 function setIn(o, path, v) { const p = path.slice(); const last = p.pop(); getIn(o, p)[last] = v; }
 
 function openReveal(id, { viaPull = false } = {}) {
+  if (typeof gov !== 'undefined') wake();
   if (!id || id === 'grid' || id === 'score') return;
   app.reveal.id = id;
   app.reveal.dirty = false;
@@ -490,6 +514,7 @@ function markDirty() {
   b.textContent = 'Replay with this change';
 }
 function closeReveal({ replay = false } = {}) {
+  if (typeof gov !== 'undefined') wake();
   app.reveal.condense = Math.min(app.reveal.condense, 0.9);
   el.panel.classList.remove('open', 'pulling');
   el.panel.style.setProperty('--pull', 0);
@@ -519,12 +544,13 @@ function leaveAttract() {
   if (settings.sound) { audio.enable(); el.btnSound.classList.add('on'); }
 }
 function resetToAttract() {
+  if (typeof gov !== 'undefined') wake();
   app.input = { promises: clone(DEFAULT_PROMISES), permissions: clone(DEFAULT_PERMISSIONS), resolutions: {} };
   app.accepted = clone(app.input);
   app.pending = null;
   app.lastDeclined = false;
   app.prevSim = null;
-  app.sim = simulate(app.input);
+  app.sim = plan(app.input);
   score.setSim(app.sim, null);
   renderCards(); renderPromise();
   app.slotF = 0; app.decisionCursor = 0; app.replays = 0; app.paused = false; app.timeScale = 1;
@@ -649,8 +675,8 @@ el.corner.addEventListener('pointerdown', (e) => {
 });
 function syncStaff() { el.staff.querySelectorAll('select').forEach((s) => { s.value = String(settings[s.dataset.k]); }); }
 el.staff.querySelectorAll('select').forEach((s) => s.addEventListener('change', () => {
-  settings[s.dataset.k] = Number(s.value); saveSettings();
-  if (s.dataset.k === 'scale') R.setScale(settings.scale);
+  settings[s.dataset.k] = s.dataset.k === 'profile' ? s.value : Number(s.value); saveSettings();
+  if (s.dataset.k === 'profile') { R.setProfile(settings.profile); gov.setRates(prof().rates); }
   if (s.dataset.k === 'sound') { if (settings.sound) { audio.enable(); el.btnSound.classList.add('on'); } else { audio.disable(); el.btnSound.classList.remove('on'); } }
 }));
 el.staff.querySelector('.x').addEventListener('click', () => el.staff.classList.add('hidden'));
@@ -679,20 +705,49 @@ function caption(nodeId, text) {
 /* The loop                                                              */
 /* ------------------------------------------------------------------ */
 resetToAttract();
-let last = performance.now();
-let fpsAcc = 0, fpsN = 0, fpsT = 0;
+let fpsWin = []; // raw frame gaps, ms, for the last second of genuine animation
+let lastInputFrame = 0;
+let domTick = 0;
+let settledFrames = 0;
 
-function tick(now) {
-  requestAnimationFrame(tick);
-  const dtRaw = clamp((now - last) / 1000, 0, 0.05);
-  last = now;
+/** Something happened that must be drawn: wake the governor. */
+function wake() {
+  lastInputFrame = performance.now();
+  if (!document.hidden) gov.setMode('ACTIVE');
+  gov.invalidate();
+}
+window.addEventListener('pointerdown', wake, { capture: true, passive: true });
+window.addEventListener('pointermove', (e) => { if (e.buttons) wake(); }, { capture: true, passive: true });
+window.addEventListener('pointerup', wake, { capture: true, passive: true });
+window.addEventListener('keydown', wake, { capture: true });
+window.addEventListener('resize', () => { score.resize(); wake(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { gov.setMode('HIDDEN'); audio.setFrozen(true); }
+  else { wake(); }
+});
+
+/** Decide the frame policy from what the visitor is doing. */
+function chooseMode(settled, now) {
+  if (document.hidden) return 'HIDDEN';
+  const recentInput = now - lastInputFrame < 900;
+  if (recentInput || app.holding || app.scrubbing) return 'ACTIVE';
+  const playing = app.timeScale > 0 || app.timeScaleCur > 0;
+  if (playing) return 'ATTRACT'; // ambient / playback: the drifting camera is the intended 30 fps motion
+  if (!settled) return 'ACTIVE'; // a reveal, ripple or projection still moving
+  if (app.mode === 'reveal' || app.pending) return 'READING';
+  return 'PAUSED';
+}
+
+function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   app.t += dtRaw;
-  fpsAcc += dtRaw; fpsN++; if (fpsAcc > 1) { app.fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; if (!el.staff.classList.contains('hidden')) el.staff.querySelector('.fps').textContent = `${app.fps.toFixed(0)} fps · scene at ${Math.round(settings.scale * 100)}%`; }
-
-  // time
-  app.timeScaleCur += (app.timeScale - app.timeScaleCur) * (app.timeScale < app.timeScaleCur ? 0.18 : 0.06);
+  // measurement time: raw gaps, never the clamped visual delta
+  if (gov.mode === 'ATTRACT' || gov.mode === 'ACTIVE') { fpsWin.push(rawGapMs); if (fpsWin.length > 120) fpsWin.shift(); }
   const dayLen = app.mode === 'replay' ? settings.dayLength * 0.7 : settings.dayLength;
   const slotsPerSec = SLOTS / dayLen;
+
+  // time
+  app.timeScaleCur += (app.timeScale - app.timeScaleCur) * (1 - Math.exp(-dtRaw * (app.timeScale < app.timeScaleCur ? 12 : 4)));
+  if (Math.abs(app.timeScale - app.timeScaleCur) < 0.005) app.timeScaleCur = app.timeScale;
   const prevSlot = Math.floor(app.slotF);
   app.slotF = Math.max(0, app.slotF + dtRaw * slotsPerSec * app.timeScaleCur);
   if (app.slotF >= SLOTS) {
@@ -723,9 +778,12 @@ function tick(now) {
 
   // touch ripple
   const ts = app.touch;
-  ts.strength += (((ts.targetStrength || 0) * (reducedMotion ? 0.4 : 1)) - ts.strength) * 0.12;
-  ts.r += ((ts.targetStrength ? 7.5 : 0) - ts.r) * 0.08;
-  if (app.mode === 'reveal' && app.reveal.id) { ts.world.lerp(nodes.get(app.reveal.id).world, 0.15); ts.strength += (0.6 - ts.strength) * 0.1; ts.r += (6 - ts.r) * 0.1; }
+  const k = 1 - Math.exp(-dtRaw * 7);
+  const inReveal = app.mode === 'reveal' && app.reveal.id;
+  const ripTarget = inReveal ? 0.6 : (ts.targetStrength || 0) * (reducedMotion ? 0.4 : 1);
+  ts.strength += (ripTarget - ts.strength) * k;
+  ts.r += ((inReveal ? 6 : ts.targetStrength ? 7.5 : 0) - ts.r) * k * 0.7;
+  if (inReveal) ts.world.lerp(nodes.get(app.reveal.id).world, k);
 
   // camera
   const drift = frozen || reducedMotion ? 0 : 1;
@@ -739,11 +797,9 @@ function tick(now) {
     const vFov = THREE.MathUtils.degToRad(R.camera.fov);
     const hWorld = 2 * dist * Math.tan(vFov / 2);
     const wWorld = hWorld * R.camera.aspect;
-    // where the object should sit on screen, as a fraction of the full canvas
     const panelFrac = landscape ? 440 / R.state.width : 0;
     const targetX = landscape ? (1 - panelFrac) * 0.5 : 0.5;
     const targetY = landscape ? 0.44 : 0.30;
-    // offsets in the camera's own screen plane, so the object lands where intended whatever its place in the constellation
     const forward = dir.clone().negate();
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
@@ -757,16 +813,20 @@ function tick(now) {
   const ease = 1 - Math.exp(-dtRaw * (reducedMotion ? 18 : 2.6)); // time-based, frame-rate independent
   camPos.lerp(camPosTarget, ease);
   camLook.lerp(camLookTarget, ease);
+  const camDist = camPos.distanceTo(camPosTarget) + camLook.distanceTo(camLookTarget);
+  if (camDist < 0.02) { camPos.copy(camPosTarget); camLook.copy(camLookTarget); }
   R.camera.position.copy(camPos);
   R.camera.lookAt(camLook);
 
   // scene state
   const revealId = app.reveal.id;
-  // the pulled object condenses into a hard-light projection once the reveal is open
   const wantCondense = revealId && el.panel.classList.contains('open') ? 1 : 0;
   if (revealId) nodes.hologram(revealId);
   app.reveal.condense += (wantCondense - app.reveal.condense) * (1 - Math.exp(-dtRaw * (wantCondense ? 2.2 : 7)));
-  nodes.update({ time: app.t, pixelRatio: R.state.pixelRatio, touch: ts.world, touchR: ts.r, touchStrength: ts.strength, revealId, spread: app.reveal.pull * 0.6, dim: 1, frame: { ...f, frozen, infoActivity: 0.3 }, condense: app.reveal.condense });
+  if (Math.abs(app.reveal.condense - wantCondense) < 0.01) app.reveal.condense = wantCondense;
+  // visual time freezes while the visitor reads: no shimmer, no drifting dust
+  const visualTime = gov.mode === 'READING' ? app.tFrozen : (app.tFrozen = app.t);
+  nodes.update({ time: visualTime, pixelRatio: R.state.pixelRatio, touch: ts.world, touchR: ts.r, touchStrength: ts.strength, revealId, spread: app.reveal.pull * 0.6, dim: 1, frame: { ...f, frozen, infoActivity: 0.3 }, condense: app.reveal.condense });
   const E = ribbons.energy;
   const imp = Math.max(0, f.feeder);
   E.windIn.flow = Math.min(f.wind, imp);
@@ -779,8 +839,8 @@ function tick(now) {
   E.battery.flow = f.batteryKw;
   const dimOthers = revealId ? 0.45 : 1;
   const linkOf = { windIn: 'wind', gridIn: 'grid', sunIn: 'sun', toCar: 'car', toHome: 'home', toBakery: 'bakery', toStreet: 'street', battery: 'battery' };
-  for (const k in E) E[k].update(dtRaw, app.timeScaleCur, { dim: revealId && linkOf[k] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
-  for (const k in ribbons.info) ribbons.info[k].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k === revealId ? 1 : 0.25) : 0.7) : 0.08 });
+  for (const k2 in E) E[k2].update(dtRaw, app.timeScaleCur, { dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
+  for (const k2 in ribbons.info) ribbons.info[k2].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k2 === revealId ? 1 : 0.25) : 0.7) : 0.08 });
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
   R.render();
 
@@ -791,9 +851,11 @@ function tick(now) {
     audio.setActivity('substation', f.cableFrac); audio.setActivity('street', f.streetFrac);
   }
 
-  // HTML overlay
+  // HTML overlay: positions every rendered frame; text at ~4 Hz or on change
   const proj = nodes.project(R.camera, R.state.width, R.state.height);
   touch.setProjected(proj);
+  const textNow = now - domTick > 250;
+  if (textNow) domTick = now;
   const showLabels = app.mode !== 'attract';
   for (const id in labelEls) {
     const L = labelEls[id]; const p = proj[id];
@@ -805,43 +867,67 @@ function tick(now) {
       else if (app.holding || app.scrubbing || app.paused) op = app.holding ? clamp(1.15 - Math.hypot(p.x - ts.x, p.y - ts.y) / 520, 0.3, 1) : 0.9;
       else op = pending ? 0.75 : 0;
     }
-    L.root.style.opacity = op.toFixed(2);
+    if (L.op !== op) { L.root.style.opacity = op.toFixed(2); L.op = op; }
     L.root.classList.toggle('pending', pending);
     L.root.classList.toggle('hot', id === revealId);
     if (op > 0.01) {
       const near = clamp(30 / camPos.distanceTo(nodes.get(id).world), 0.6, 3);
       L.root.style.transform = `translate(${p.x.toFixed(1)}px, ${(p.y + LABEL_OFFSET[id] * near).toFixed(1)}px) translate(-50%, 0)`;
-      L.state.textContent = stateText(id, f, sim);
+      if (textNow || L.stale) { const t = stateText(id, f, sim); if (t !== L.text) { L.state.textContent = t; L.text = t; } L.stale = false; }
       L.state.classList.toggle('over', id === 'substation' && f.feeder > SCENARIO.feederLimitKw);
-    }
+    } else L.stale = true;
   }
-  for (let k = captionPool.length - 1; k >= 0; k--) {
-    const c = captionPool[k]; const p = proj[c.node];
-    if (now - c.born > 5600) { c.el.remove(); captionPool.splice(k, 1); continue; }
+  for (let k2 = captionPool.length - 1; k2 >= 0; k2--) {
+    const c = captionPool[k2]; const p = proj[c.node];
+    if (now - c.born > 5600) { c.el.remove(); captionPool.splice(k2, 1); continue; }
     c.el.style.left = `${p.x.toFixed(1)}px`; c.el.style.top = `${(p.y - LABEL_OFFSET[c.node] * 0.9).toFixed(1)}px`;
   }
   $('#chipWhy').classList.toggle('hidden', app.mode === 'attract' || app.mode === 'reveal' || !!app.pending);
-  if (app.mode !== 'attract') {
+  if (app.mode !== 'attract' && (textNow || frozen)) {
     const h = slotHour(app.slotF) % 24;
-    el.clockTime.textContent = formatClock(h);
+    const tt = formatClock(h);
+    if (el.clockTime.textContent !== tt) el.clockTime.textContent = tt;
     const over = f.feeder > SCENARIO.feederLimitKw;
-    el.clockSub.innerHTML = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${app.pending ? ' · <b class="pend">waiting for your answer</b>' : frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
-    score.draw(app.slotF, { revealId, dimmed: false });
+    const sub = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${app.pending ? ' · <b class="pend">waiting for your answer</b>' : frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
+    if (sub !== el.clockSub.innerHTML) el.clockSub.innerHTML = sub;
   }
+  if (app.mode !== 'attract') score.draw(app.slotF, { revealId, dimmed: false });
 
-  // idle → attract
+  // settled? (camera, condense, ripple, time scale and captions all at rest)
+  if (Math.abs(ts.strength - ripTarget) < 0.01) ts.strength = ripTarget;
+  const settled = camDist < 0.02 && app.reveal.condense === wantCondense && ts.strength === ripTarget && app.timeScaleCur === app.timeScale && captionPool.length === 0 && (!ts.targetStrength || app.mode === 'reveal');
+  diag.settle = { camDist, condense: app.reveal.condense, wantCondense, rip: ts.strength, ripTarget, tsc: app.timeScaleCur, tsT: app.timeScale, captions: captionPool.length, holding: app.holding, scrubbing: app.scrubbing, lastInputAgo: now - lastInputFrame, settled };
+  settledFrames = settled ? settledFrames + 1 : 0;
+  const mode = chooseMode(settledFrames > 2, now);
+  if (mode !== gov.mode) gov.setMode(mode);
+
+  // diagnostics at ~2 Hz while the staff panel is open
+  if (textNow && !el.staff.classList.contains('hidden')) {
+    const gaps = fpsWin.slice().sort((a, b) => a - b);
+    const p95 = gaps.length ? gaps[Math.floor(gaps.length * 0.95)] : 0;
+    const fps = gaps.length ? 1000 / (gaps.reduce((a, b) => a + b, 0) / gaps.length) : 0;
+    app.fps = fps;
+    const info = R.renderer.info.render;
+    el.staff.querySelector('.fps').textContent = `${gov.mode} · ${fps.toFixed(0)} fps (p95 gap ${p95.toFixed(0)} ms) · ${R.state.bufferWidth}×${R.state.bufferHeight} px · ${info.calls} draws · ${(info.triangles / 1000).toFixed(0)}k tris · ${info.points} pts · solves ${diag.solves} (${diag.solveMs.toFixed(1)} ms) · cache hits ${diag.cacheHits}`;
+  }
+}
+
+// One owner of requestAnimationFrame. Idle detection runs on the wall clock, independent of frames.
+const gov = new RenderGovernor(tick, { rates: prof().rates });
+app.tFrozen = 0;
+gov.setMode('ATTRACT');
+setInterval(() => {
   if (app.mode !== 'attract' && settings.timeout > 0) {
-    const idle = (now - app.lastInput) / 1000;
-    if (idle > settings.timeout && !app.idleShown) { app.idleShown = true; el.idle.classList.remove('hidden'); }
+    const idle = (performance.now() - app.lastInput) / 1000;
+    if (idle > settings.timeout && !app.idleShown) { app.idleShown = true; el.idle.classList.remove('hidden'); gov.invalidate(); }
     if (app.idleShown) {
       const left = Math.max(0, Math.ceil(settings.timeout + 15 - idle));
       el.idle.querySelector('b').textContent = String(left);
-      if (left <= 0) resetToAttract();
+      if (left <= 0) { resetToAttract(); wake(); }
     }
   }
-}
-requestAnimationFrame(tick);
+}, 1000);
 
 // Expose a tiny inspection hook for testing on the station (no UI).
-window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending };
+window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache };
 window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons;

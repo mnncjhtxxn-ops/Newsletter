@@ -45,7 +45,7 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | O01 | Cold offline launch | PASS | loaded via `file://` in a fresh headless profile; no network requests possible in the container |
 | O02 | Network audit | PASS | the built file contains no external URLs at runtime (fonts are the system stack; no images) |
 | O03 | Twelve-hour soak | NOT RUN | longest run so far: ~2 minutes of continuous automated use |
-| O04 | ≥ 500 automated cycles | PARTIAL | 60 cycles, heap flat at 6.1–6.4 MB, 1 shader program, 50 geometries constant |
+| O04 | ≥ 500 automated cycles | PARTIAL | 60 cycles on the governed build, heap flat, no DOM build-up (see the soak line in the handover message) |
 | O05 | Honest profiling on hardware | BLOCKED | no kiosk PC in this environment |
 | O06 | Recovery after browser closure / context loss / restart | PARTIAL | WebGL2 absence and context loss show a recovery state (implemented, exercised only by code review); PC restart BLOCKED |
 | O07 | Missing / invalid config | PASS | settings fall back to defaults; `localStorage` failures are caught |
@@ -54,3 +54,20 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 ## Human evaluation
 
 NOT RUN. The four questions (what did you ask, what changed, why, what was it allowed to do) have not been put to anyone.
+
+## Efficiency tests (spec v1.1 §11.1 H)
+
+| ID | Requirement | Status | Evidence |
+|---|---|---|---|
+| E01 | No planning inside the render loop | PASS | solve counter unchanged through playback, a reveal, close and a scrub (`perf.cjs`) |
+| E02 | One solve per new committed scenario; cache reuse | PASS | three commits with two distinct inputs → 1 solve, 2 cache hits |
+| E03 | Bounded request queue | N/A | the planner is synchronous; there is no queue to bound |
+| E04 | Permission bypass impossible via cache | PASS | a cached FEASIBLE plan still waits under "ask"; decline restores the agreed plan |
+| E05 | Independent time bases | PASS by construction + test | model time samples a precomputed schedule; `governor.test.js` shows no catch-up delta after 30 s hidden |
+| E06 | Render-on-demand is real | PASS | READING: 0 frames submitted in 10 s after settling; unit test: 0 frames in 60 s, three invalidations coalesce to one frame |
+| E07 | FPS cap survives high-refresh monitors | PASS (unit) | fake 60/120/144 Hz displays all deliver 290–305 frames in 10 s at the 30 fps cap; one rAF owner |
+| E08 | Pixel cap survives 4K and DPR | PASS | 1080×1920 CSS at DPR 2 → 1080×1920 buffer in Balanced; unit tests for 2160×3840 at DPR 2 and DPR 3 capping |
+| E09 | True focal glass preserved | N/A | no glass is used |
+| E10 | Budget includes whole graph | PARTIAL | draw calls, triangles and points reported from the renderer; there are no shadow, transmission or post-process passes to count |
+| E11 | No quality thrash | NOT RUN | adaptive quality not implemented; profiles are staff-selected |
+| E12 | Eight-hour ambition | NOT RUN | twelve-hour soak not performed |
