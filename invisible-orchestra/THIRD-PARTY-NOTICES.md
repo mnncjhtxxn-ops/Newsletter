@@ -20,8 +20,10 @@ No fonts, images, audio or video assets are bundled: every sprite is drawn proce
 
 Three supplied models are embedded as decimated, quantised geometry (no textures or materials). Full details, changes made and licence status are in `assets/manifest.json`.
 
+All three were sourced on Sketchfab; public and commercial use was confirmed by Adam Pollock on 27 September 2026.
+
 | Asset | Creator | Licence | Status |
 |---|---|---|---|
-| Free Concept Car 038 | Unity Fan | CC0 (per archive name; no licence file inside) | usable; confirm listing |
-| Timber Frame House | Razny, Sketchfab | Sketchfab Standard | usable in the exhibit; redistribution of the derived geometry needs confirmation |
-| Korean bakery | unknown | unknown | **blocked for release until confirmed** |
+| Free Concept Car 038 | Unity Fan | CC0 | cleared |
+| Timber Frame House | Razny (sketchfab.com/razniak1910) | Sketchfab Standard | cleared |
+| Korean bakery | not recorded in the file; attribution to be added from the listing | Sketchfab | cleared |
