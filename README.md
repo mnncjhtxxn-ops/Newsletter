@@ -119,3 +119,10 @@ Newsletter/
 ├── output/                 # generated, gitignored
 └── tests/test_smoke.py
 ```
+
+## Also in this repository
+
+`invisible-orchestra/` holds **2037: The Invisible Orchestra**, a self-contained
+exhibition touchscreen experience (single offline HTML file) with its own README,
+build and tests. It is independent of the newsletter tool and can be moved to its
+own repository by copying the folder.

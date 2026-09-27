@@ -1,0 +1,20 @@
+{
+  "name": "invisible-orchestra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "2037: The Invisible Orchestra — an interactive, living energy sculpture for exhibition touchscreens. Offline single-file WebGL build with an inspectable local flexibility simulation.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch",
+    "test": "node --test tests/*.test.js",
+    "serve": "node build.js && npx --yes serve dist"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
