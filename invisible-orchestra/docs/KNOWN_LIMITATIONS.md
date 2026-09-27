@@ -9,7 +9,8 @@
 - Loads are scheduled in a fixed order (car, cold store, heat, battery). A different order could find a cheaper combined day; the explanation states the order rather than claiming optimality of the whole day.
 
 **Experience**
-- Objects are formed from light (point clouds with a halo pass), which is the original concept but not the specification's PBR product-visualisation bar. This is an open art-direction decision.
+- Hero objects are light-formed at overview scale and become hard-light holographic projections when revealed. The projection geometry is procedural (boxes, extrusions, cylinders): recognisable, not product-visualisation detail. The car's cabin in particular is a plain extrusion; a sculpted body would need modelled geometry.
+- Projections are additive translucent double-sided meshes; on weak GPUs they are the most expensive thing on screen. Only one is ever visible at a time.
 - Only one scenario exists (Larkfield Street). Presets for a business day or a fleet are not built.
 - Sound is a small synthesised layer with no authored composition.
 

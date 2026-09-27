@@ -86,7 +86,7 @@ const app = {
   lastDeclined: false,
   sim: null,
   prevSim: null,
-  reveal: { id: null, pull: 0, dirty: false },
+  reveal: { id: null, pull: 0, dirty: false, condense: 0 },
   touch: { world: new THREE.Vector3(0, -999, 0), strength: 0, r: 0, x: 0, y: 0 },
   decisionCursor: 0,
   lastInput: performance.now(),
@@ -490,6 +490,7 @@ function markDirty() {
   b.textContent = 'Replay with this change';
 }
 function closeReveal({ replay = false } = {}) {
+  app.reveal.condense = Math.min(app.reveal.condense, 0.9);
   el.panel.classList.remove('open', 'pulling');
   el.panel.style.setProperty('--pull', 0);
   app.reveal.id = null;
@@ -527,7 +528,7 @@ function resetToAttract() {
   score.setSim(app.sim, null);
   renderCards(); renderPromise();
   app.slotF = 0; app.decisionCursor = 0; app.replays = 0; app.paused = false; app.timeScale = 1;
-  app.reveal = { id: null, pull: 0, dirty: false };
+  app.reveal = { id: null, pull: 0, dirty: false, condense: 0 };
   app.mode = 'attract';
   el.panel.classList.remove('open', 'pulling', 'deep'); el.panel.style.setProperty('--pull', 0);
   el.toast.classList.add('hidden'); el.lessons.classList.add('hidden'); el.idle.classList.add('hidden'); el.staff.classList.add('hidden');
@@ -729,23 +730,43 @@ function tick(now) {
   // camera
   const drift = frozen || reducedMotion ? 0 : 1;
   if (app.mode === 'reveal' && app.reveal.id) {
+    // Frame the projection at a fixed screen position beside the panel (landscape)
+    // or above the sheet (portrait), whatever the object's place in the constellation.
     const w = nodes.get(app.reveal.id).world;
-    const dir = new THREE.Vector3(0, 1.5, R.state.camZ).sub(w).normalize();
     const landscape = R.state.width / R.state.height > 1 && R.state.width > 760;
-    camPosTarget.copy(w).add(dir.multiplyScalar(landscape ? 18 : R.state.camZ * 0.85)).add(new THREE.Vector3(landscape ? 6 : w.x * -0.5, 1.2, 0));
-    camLookTarget.copy(w).add(new THREE.Vector3(landscape ? 6 : w.x * -0.5, landscape ? 0 : 5, 0));
+    const dist = landscape ? 13 : R.state.camZ * 0.62;
+    const dir = new THREE.Vector3(0, 1.5, R.state.camZ).sub(w).normalize();
+    const vFov = THREE.MathUtils.degToRad(R.camera.fov);
+    const hWorld = 2 * dist * Math.tan(vFov / 2);
+    const wWorld = hWorld * R.camera.aspect;
+    // where the object should sit on screen, as a fraction of the full canvas
+    const panelFrac = landscape ? 440 / R.state.width : 0;
+    const targetX = landscape ? (1 - panelFrac) * 0.5 : 0.5;
+    const targetY = landscape ? 0.44 : 0.30;
+    // offsets in the camera's own screen plane, so the object lands where intended whatever its place in the constellation
+    const forward = dir.clone().negate();
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+    const shift = right.multiplyScalar((0.5 - targetX) * wWorld).add(up.multiplyScalar((targetY - 0.5) * hWorld));
+    camPosTarget.copy(w).add(dir.multiplyScalar(dist)).add(shift);
+    camLookTarget.copy(w).add(shift);
   } else {
     camPosTarget.set(Math.sin(app.t * 0.05) * 1.6 * drift, 1.5 + Math.sin(app.t * 0.037) * 0.6 * drift, R.state.camZ + Math.sin(app.t * 0.021) * 1.2 * drift);
     camLookTarget.copy(LOOK_BASE);
   }
-  camPos.lerp(camPosTarget, reducedMotion ? 0.25 : 0.04);
-  camLook.lerp(camLookTarget, reducedMotion ? 0.25 : 0.04);
+  const ease = 1 - Math.exp(-dtRaw * (reducedMotion ? 18 : 2.6)); // time-based, frame-rate independent
+  camPos.lerp(camPosTarget, ease);
+  camLook.lerp(camLookTarget, ease);
   R.camera.position.copy(camPos);
   R.camera.lookAt(camLook);
 
   // scene state
   const revealId = app.reveal.id;
-  nodes.update({ time: app.t, pixelRatio: R.state.pixelRatio, touch: ts.world, touchR: ts.r, touchStrength: ts.strength, revealId, spread: app.reveal.pull * 0.6, dim: 1, frame: { ...f, frozen, infoActivity: 0.3 } });
+  // the pulled object condenses into a hard-light projection once the reveal is open
+  const wantCondense = revealId && el.panel.classList.contains('open') ? 1 : 0;
+  if (revealId) nodes.hologram(revealId);
+  app.reveal.condense += (wantCondense - app.reveal.condense) * (1 - Math.exp(-dtRaw * (wantCondense ? 2.2 : 7)));
+  nodes.update({ time: app.t, pixelRatio: R.state.pixelRatio, touch: ts.world, touchR: ts.r, touchStrength: ts.strength, revealId, spread: app.reveal.pull * 0.6, dim: 1, frame: { ...f, frozen, infoActivity: 0.3 }, condense: app.reveal.condense });
   const E = ribbons.energy;
   const imp = Math.max(0, f.feeder);
   E.windIn.flow = Math.min(f.wind, imp);
@@ -788,7 +809,8 @@ function tick(now) {
     L.root.classList.toggle('pending', pending);
     L.root.classList.toggle('hot', id === revealId);
     if (op > 0.01) {
-      L.root.style.transform = `translate(${p.x.toFixed(1)}px, ${(p.y + LABEL_OFFSET[id]).toFixed(1)}px) translate(-50%, 0)`;
+      const near = clamp(30 / camPos.distanceTo(nodes.get(id).world), 0.6, 3);
+      L.root.style.transform = `translate(${p.x.toFixed(1)}px, ${(p.y + LABEL_OFFSET[id] * near).toFixed(1)}px) translate(-50%, 0)`;
       L.state.textContent = stateText(id, f, sim);
       L.state.classList.toggle('over', id === 'substation' && f.feeder > SCENARIO.feederLimitKw);
     }

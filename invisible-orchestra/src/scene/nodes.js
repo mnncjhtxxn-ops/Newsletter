@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { pointsMaterial, makePoints } from './glow.js';
 import * as shapes from './shapes.js';
+import { Hologram, HOLO_NODES } from './holograms.js';
 
 /**
  * The cast of the sculpture. Positions form a loose constellation; colours
@@ -73,8 +74,16 @@ export class Nodes {
     return this.byId[id];
   }
 
+  /** Lazily build a node's hard-light projection. */
+  hologram(id) {
+    const n = this.byId[id];
+    if (!n || !HOLO_NODES.has(id)) return null;
+    if (!n.holo) n.holo = new Hologram(n);
+    return n.holo;
+  }
+
   /** Per-frame: time, touch and reveal uniforms, plus state from the sim frame. */
-  update({ time, pixelRatio, touch, touchR, touchStrength, revealId, spread, dim, frame }) {
+  update({ time, pixelRatio, touch, touchR, touchStrength, revealId, spread, dim, frame, condense = 0 }) {
     for (const m of this.materials) {
       m.uniforms.uTime.value = time;
       m.uniforms.uPixelRatio.value = pixelRatio;
@@ -87,9 +96,14 @@ export class Nodes {
       const isRevealed = revealId === id;
       let target = revealId && !isRevealed ? 0.35 * dim : 1;
       if (id === 'car' && frame?.carAway) target *= 0.12;
+      // condensing: the particles pull in and dim as the projection takes over
+      const c = isRevealed ? condense : (n.holo ? n.holo.c : 0);
+      if (c > 0) target *= 1 - 0.45 * c;
+      n.mat.uniforms.uBreath.value = 0.02 * (1 - 0.8 * c);
+      if (n.holo) n.holo.update(isRevealed ? condense : Math.max(0, n.holo.c - (frame?.dt ?? 0.016) * 2.5), time, n.extras.blades ? n.extras.blades.rotation.z : null);
       if (id === 'sun' && frame) target *= 0.18 + 0.82 * Math.min(1, frame.solarFrac * 1.5);
       n.mat.uniforms.uOpacity.value += ((n.def.dim || 0.9) * target - n.mat.uniforms.uOpacity.value) * 0.08;
-      n.mat.uniforms.uSpread.value = isRevealed ? spread : 0;
+      n.mat.uniforms.uSpread.value = isRevealed ? spread * (1 - condense) - 0.12 * condense : 0;
       if (n.extras.blades) n.extras.blades.material.uniforms.uOpacity.value = n.mat.uniforms.uOpacity.value;
       if (n.extras.ringMat) n.extras.ringMat.uniforms.uOpacity.value = n.mat.uniforms.uOpacity.value * 0.95;
     }
@@ -134,6 +148,7 @@ export class Nodes {
     for (const id in this.byId) {
       const n = this.byId[id];
       n.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+      n.holo?.dispose();
     }
     for (const m of this.materials) { m.userData.halo?.dispose(); m.dispose(); }
   }

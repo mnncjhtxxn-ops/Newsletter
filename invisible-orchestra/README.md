@@ -21,6 +21,10 @@ It is a single self-contained HTML file. It runs offline, from `file://`, with n
 
 There are exactly three signature gestures (touch, pull, change-and-replay), a visible pause button for those who prefer it, and a "score" strip at the bottom that doubles as an accessible alternative: tap a stave to open that participant, drag to move through the day.
 
+## Made of light at every scale
+
+At overview scale every object is a cloud of light. When you pull one forward, its particles coalesce into a **hard-light projection**: solid translucent surfaces with bright edges, a faint scanline shimmer, an emitter ring beneath, and tiny dust motes drifting through the field. It is more substantial than the overview, and still unmistakably made of light. Release it and it dissolves back into the strands. The projections are procedural geometry (`src/scene/holograms.js`); nothing is loaded.
+
 ## Why the spectacle has substance
 
 **Every visual change corresponds to something that changed in the simulation.** Ribbon density and speed follow the simulated kilowatts on that link. The car fills as it charges. The house glows with its temperature inside the band. The cable's ring fills towards its limit and turns red when it is breached. Information packets travel only when a decision is made. A ribbon never gets smoother because a "smart" button was pressed.
@@ -129,6 +133,7 @@ src/
   sim/engine.js      the scheduler, explanations and lessons (pure, tested)
   scene/glow.js      shader material, procedural sprite, halo pass
   scene/shapes.js    objects formed from light (point-cloud generators)
+  scene/holograms.js hard-light projections the objects condense into when revealed
   scene/nodes.js     the cast, driven by simulation state each frame
   scene/ribbons.js   energy ribbons (flow) and information ribbons (packets)
   scene/field.js     ambient drifting strands

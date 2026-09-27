@@ -17,7 +17,7 @@
 | WebGL2 capability check and context-loss state | Done |
 | Attract copy with "Illustrative 2037 scenario" | Done (kept the original "Touch to see what makes it possible" line) |
 | Car story only in the first slice | **Deliberately not followed.** The build keeps home, bakery and battery because they are what make the cable constraint and the coordination visible; each has its own tests. The spec's concern (three shallow stories) is answered by the fact that the car is the only story with a verified optimal planner and fixtures |
-| PBR GLB hero assets, glass, environment lighting | **Not done — open decision.** See the handover note |
+| PBR GLB hero assets, glass, environment lighting | **Resolved as a hybrid (agreed with Adam).** At overview scale the objects are formed from light; when pulled forward, the particles coalesce into a hard-light holographic projection: solid translucent surfaces with fresnel edges, scanline shimmer, crisp light edges, an emitter ring and dust motes drifting through the field (`src/scene/holograms.js`, procedural geometry, no assets). Still unmistakably made of light, but substantial enough to inspect. Not photoreal PBR by design |
 | Loopback server launcher | Not needed: single-file route (spec §11.2 option 3), tested from `file://` |
 | Twelve-hour soak, 500 cycles, hardware profiling, human evaluation | NOT RUN / BLOCKED (see TEST_RESULTS.md) |
 | TypeScript | Not used; plain ES modules bundled with esbuild. A `.d.ts`-free codebase was a deliberate speed choice; converting is mechanical |
