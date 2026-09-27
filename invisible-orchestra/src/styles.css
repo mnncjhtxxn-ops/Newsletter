@@ -212,3 +212,4 @@ button { cursor: pointer; }
   #toast { top: auto; bottom: 190px; }
   #controls { flex-wrap: wrap; justify-content: flex-end; max-width: 92vw; }
 }
+#staff .credits { font-size: 10px; line-height: 1.4; color: var(--ink-faint); border-top: 1px solid var(--card-border); padding-top: 8px; }

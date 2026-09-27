@@ -10,7 +10,7 @@
 
 **Experience**
 - The car, home and bakery use supplied 3D models (decimated to 24k–50k triangles, geometry only) for both the ambient light-form and the projection; the turbine and battery remain procedural. The house is a dense timber-frame model whose many small parts resist decimation below ~50k triangles.
-- Licences: all three models are from Sketchfab with public and commercial use confirmed (see `assets/manifest.json`). The bakery's creator name is not in the file and should be added for attribution.
+- Licences: all three models are from Sketchfab with public and commercial use confirmed (see `assets/manifest.json`). The bakery is CC BY 4.0 and its attribution is shown in the staff panel and in THIRD-PARTY-NOTICES.md.
 - Projections are additive translucent double-sided meshes; on weak GPUs they are the most expensive thing on screen. Only one is ever visible at a time.
 - Only one scenario exists (Larkfield Street). Presets for a business day or a fleet are not built.
 - Sound is a small synthesised layer with no authored composition.

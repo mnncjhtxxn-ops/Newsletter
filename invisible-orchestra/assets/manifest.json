@@ -29,16 +29,17 @@
     },
     {
       "id": "bakery",
-      "title": "Korean bakery (kobakery)",
-      "creator": "unknown \u2014 no author or licence metadata in the .blend file",
+      "title": "Korean Bakery",
+      "creator": "Bjarne Stokhof",
       "sourceFile": "korean-bakery.zip \u2192 source/kobakery_render.blend",
-      "licence": "Sketchfab listing; public and commercial use confirmed by Adam Pollock. Creator name not recorded in the file: add the attribution line when the listing is to hand.",
-      "sourceUrl": "not recorded",
+      "licence": "Creative Commons Attribution 4.0 (CC BY 4.0), http://creativecommons.org/licenses/by/4.0/",
+      "sourceUrl": "https://skfb.ly/orTHn",
       "changes": "joined 33 meshes, decimated 38,299 \u2192 24,000 triangles, scaled to 2.8 units, quantised to int16",
       "runtimePath": "src/assets/bakery.geo",
       "triangles": 24000,
       "sourcePlatform": "Sketchfab",
-      "useConfirmedBy": "Adam Pollock, 27 September 2026: public and commercial use permitted"
+      "useConfirmedBy": "Adam Pollock, 27 September 2026: public and commercial use permitted",
+      "attribution": "\"Korean Bakery\" (https://skfb.ly/orTHn) by Bjarne Stokhof is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/)."
     }
   ]
 }

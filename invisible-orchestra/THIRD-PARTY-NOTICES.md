@@ -26,4 +26,6 @@ All three were sourced on Sketchfab; public and commercial use was confirmed by 
 |---|---|---|---|
 | Free Concept Car 038 | Unity Fan | CC0 | cleared |
 | Timber Frame House | Razny (sketchfab.com/razniak1910) | Sketchfab Standard | cleared |
-| Korean bakery | not recorded in the file; attribution to be added from the listing | Sketchfab | cleared |
+| Korean Bakery | Bjarne Stokhof | CC BY 4.0 | cleared; attribution required and shown in the staff panel |
+
+**Required attribution (CC BY 4.0):** "Korean Bakery" (https://skfb.ly/orTHn) by Bjarne Stokhof is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/). The geometry was decimated and quantised for this exhibit; no textures are used.
