@@ -25,6 +25,7 @@ import {
   SLOTS, DT, slotHour, slotClock, clockToSlot, formatClock, buildSeries,
   SCENARIO, DEFAULT_PROMISES, DEFAULT_PERMISSIONS, COMFORT_BANDS,
 } from './scenario.js';
+import { planLoad, PlanStatus } from './planner.js';
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -64,10 +65,14 @@ export function describeRuns(rs, opts = {}) {
   return `${parts[0]}, ${parts[1]} and ${parts.length - 2} more`;
 }
 
-function modeFor(permission, approval) {
-  if (permission === 'auto') return 'auto';
-  if (permission === 'ask') return approval === true ? 'auto' : 'immediate';
-  return 'immediate';
+/**
+ * 'never' means the load is not the orchestra's to plan: it runs the way it
+ * would with nobody coordinating it. 'auto' and 'ask' are both planned here;
+ * whether an 'ask' plan may replace the agreed one is decided by the
+ * authority review in planner.js, outside the simulation.
+ */
+function modeFor(permission) {
+  return permission === 'never' ? 'immediate' : 'auto';
 }
 
 /* ------------------------------------------------------------------ */
@@ -93,92 +98,65 @@ function bakeryOvenProfile(openingClock) {
 /* Deadline loads: choose the cheapest slots inside a window            */
 /* ------------------------------------------------------------------ */
 
-/**
- * Choose `need` slots from [from, to) minimising price plus a cable penalty.
- * Returns the chosen slot indices in time order plus whether any chosen
- * slot pushes the cable over its limit.
- */
-function chooseSlots({ from, to, need, price, committed, limit, powerKw }) {
-  const cands = [];
-  for (let i = from; i < to; i++) {
-    const over = committed[i] + powerKw > limit;
-    cands.push({ i, score: price[i] + (over ? 1000 : 0), over });
-  }
-  cands.sort((a, b) => a.score - b.score || a.i - b.i);
-  const chosen = cands.slice(0, need).sort((a, b) => a.i - b.i);
-  return { slots: chosen.map((c) => c.i), overloaded: chosen.some((c) => c.over) };
-}
-
 function scheduleEv(mode, ctx) {
   const { price, committed, limit, wind, solar, load } = ctx;
   const ev = SCENARIO.ev;
   const pr = ctx.promises.ev;
   const P = ev.chargerKw;
+  const eta = ev.chargingEfficiency;
   const depart = clockToSlot(pr.departureClock);
   const from = ev.arriveSlot;
-  const energyNeeded = Math.max(0, (pr.targetPct - ev.startPct) / 100 * ev.capacityKwh);
-  const perSlot = P * DT;
-  const need = Math.ceil(energyNeeded / perSlot - 1e-9);
-  const windowSlots = depart - from;
-  const feasible = need <= windowSlots;
+  const energyNeeded = Math.max(0, (pr.targetPct - ev.startPct) / 100 * ev.capacityKwh); // into the battery
+  const available = Array.from({ length: SLOTS }, (_, i) => i >= from && i < depart);
 
-  const power = new Float64Array(SLOTS);
-  let slots;
-  let overloaded = false;
+  let plan;
   if (mode === 'auto') {
-    const c = chooseSlots({ from, to: depart, need: Math.min(need, windowSlots), price, committed, limit, powerKw: P });
-    slots = c.slots;
-    overloaded = c.overloaded;
+    plan = planLoad({
+      pricePencePerKwh: Array.from(price), headroomKw: Array.from(committed, (c) => limit - c), available, dtHours: DT,
+      maxPowerKw: P, energyNeededKwh: energyNeeded, efficiency: eta, capPence: pr.priceCapPence,
+      priority: ctx.resolutions.evPriority === 'price' ? 'budget' : 'target',
+    });
   } else {
-    slots = [];
-    for (let i = from; i < depart && slots.length < need; i++) slots.push(i);
-  }
-  // Fill, with a partial final slot so the energy matches exactly.
-  let remaining = energyNeeded;
-  for (const i of slots) {
-    const e = Math.min(perSlot, remaining);
-    power[i] = e / DT;
-    remaining -= e;
+    // Nobody coordinating: charge at full power from the moment it is plugged in.
+    const flat = Array.from({ length: SLOTS }, () => 0);
+    plan = planLoad({ pricePencePerKwh: flat, headroomKw: Array.from({ length: SLOTS }, () => P), available, dtHours: DT, maxPowerKw: P, energyNeededKwh: energyNeeded, efficiency: eta, capPence: null });
+    plan.costPence = 0;
+    for (let i = 0; i < SLOTS; i++) plan.costPence += plan.acKwhPerSlot[i] * price[i];
+    plan.minCostPence = plan.costPence;
+    plan.trace.reasonCodes = ['NO_COORDINATION'];
   }
 
-  const costOf = (pw) => sum(Array.from(pw, (p, i) => p * DT * price[i]));
-  let cost = costOf(power); // pence
-  let priceConflict = null;
-  if (pr.priceCapPence != null && cost > pr.priceCapPence + 1e-6) {
-    const priority = ctx.resolutions.evPriority || 'departure';
-    priceConflict = { cap: pr.priceCapPence, costIfDeparture: cost, priority };
-    if (priority === 'price') {
-      // Drop the dearest chosen slots until we fit inside the cap.
-      const order = slots.slice().sort((a, b) => price[b] - price[a]);
-      for (const i of order) {
-        if (cost <= pr.priceCapPence + 1e-6) break;
-        cost -= power[i] * DT * price[i];
-        power[i] = 0;
-      }
-    }
-  }
-
-  const delivered = sum(power) * DT;
+  const power = plan.powerKw;
   const soc = new Float64Array(SLOTS + 1);
   soc[0] = ev.startPct;
-  for (let i = 0; i < SLOTS; i++) soc[i + 1] = soc[i] + (power[i] * DT / ev.capacityKwh) * 100;
+  for (let i = 0; i < SLOTS; i++) soc[i + 1] = soc[i] + (power[i] * DT * eta / ev.capacityKwh) * 100;
   const reachedPct = soc[depart];
+  const delivered = plan.acKwh;
 
-  // Wind share of the car's energy: how much of the street's load could be
-  // covered by wind and solar at each moment the car drew power.
+  // Earliest moment the target could be met ignoring price (for the "leave later" option).
+  let acc = 0, fullSlot = -1;
+  for (let i = from; i < SLOTS; i++) { acc += Math.min(P, Math.max(0, limit - committed[i])) * DT; if (acc * eta >= energyNeeded - 1e-9) { fullSlot = i + 1; break; } }
+
+  // Wind share of the car's energy at the moments it drew power.
   let windKwh = 0;
   for (let i = 0; i < SLOTS; i++) {
     if (power[i] > 0) {
       const total = load[i] + power[i];
-      const frac = clamp((wind[i] + solar[i]) / Math.max(total, 1e-6), 0, 1);
-      windKwh += power[i] * DT * frac;
+      windKwh += power[i] * DT * clamp((wind[i] + solar[i]) / Math.max(total, 1e-6), 0, 1);
     }
   }
 
+  const capacityShort = plan.boundReason === 'CHARGER_POWER_AND_TIME_LIMIT' || plan.boundReason === 'FEEDER_HEADROOM_BINDING';
+  const priceConflict = plan.trace.reasonCodes.includes('BUDGET_TARGET_CONFLICT')
+    ? { cap: pr.priceCapPence, costIfDeparture: plan.minCostPence, priority: ctx.resolutions.evPriority || 'departure', maxPctWithinBudget: ev.startPct + (plan.maxAddedWithinBudgetKwh / ev.capacityKwh) * 100 }
+    : null;
+
   return {
-    power, soc, slots, depart, from, energyNeeded, delivered, reachedPct, feasible, need, windowSlots,
-    cost: costOf(power), overloaded, priceConflict, windShare: delivered > 0 ? windKwh / delivered : 0,
-    latestFullClock: slotClock(from + need),
+    power, soc, slots: [...power.keys()].filter((i) => power[i] > 1e-9), depart, from, energyNeeded, acNeeded: plan.acNeededKwh, delivered, addedKwh: plan.addedKwh,
+    reachedPct, feasible: !capacityShort, maxPct: ev.startPct + (plan.maxAddedKwh / ev.capacityKwh) * 100,
+    cost: plan.costPence, minCost: plan.minCostPence, priceConflict, windShare: delivered > 0 ? windKwh / delivered : 0,
+    latestFullClock: fullSlot > 0 ? slotClock(fullSlot) : null, status: plan.status, boundReason: plan.boundReason, trace: plan.trace,
+    need: Math.ceil(plan.acNeededKwh / (P * DT) - 1e-9), windowSlots: depart - from,
   };
 }
 
@@ -187,21 +165,19 @@ function scheduleBakeryCold(mode, ctx) {
   const b = SCENARIO.bakery;
   const from = clockToSlot(b.coldWindowStartClock);
   const to = clockToSlot(b.coldWindowEndClock);
-  const need = Math.round(b.coldStoreHours / DT);
-  const power = new Float64Array(SLOTS);
-  let slots;
-  let overloaded = false;
+  const available = Array.from({ length: SLOTS }, (_, i) => i >= from && i < to);
+  const energy = b.coldStoreHours * b.coldStoreKw;
+  let plan;
   if (mode === 'auto') {
-    const c = chooseSlots({ from, to, need, price, committed, limit, powerKw: b.coldStoreKw });
-    slots = c.slots;
-    overloaded = c.overloaded;
+    plan = planLoad({ pricePencePerKwh: Array.from(price), headroomKw: Array.from(committed, (c) => limit - c), available, dtHours: DT, maxPowerKw: b.coldStoreKw, energyNeededKwh: energy, divisible: false });
   } else {
-    slots = [];
-    for (let i = from; i < to && slots.length < need; i++) slots.push(i);
+    const flat = Array.from({ length: SLOTS }, () => 0);
+    plan = planLoad({ pricePencePerKwh: flat, headroomKw: Array.from({ length: SLOTS }, () => b.coldStoreKw), available, dtHours: DT, maxPowerKw: b.coldStoreKw, energyNeededKwh: energy, divisible: false });
+    plan.trace.reasonCodes = ['NO_COORDINATION'];
   }
-  for (const i of slots) power[i] = b.coldStoreKw;
+  const power = plan.powerKw;
   const cost = sum(Array.from(power, (p, i) => p * DT * price[i]));
-  return { power, slots, cost, from, to, overloaded };
+  return { power, slots: [...power.keys()].filter((i) => power[i] > 1e-9), cost, from, to, status: plan.status, shortfallKwh: plan.shortfallKwh, trace: plan.trace };
 }
 
 /* ------------------------------------------------------------------ */
@@ -349,73 +325,27 @@ export function simulate(input = {}) {
   for (let i = 0; i < SLOTS; i++) load[i] = S.street[i] + homeBase[i] + ovens.power[i];
 
   const ctxBase = { price: S.price, wind: S.wind, solar: S.solar, outdoor: S.outdoor, limit, promises, resolutions, load };
-  const requests = [];
   const decisions = [];
   const conflicts = [];
 
-  // Shadow schedules under 'auto' let us quantify what an 'ask' proposal would do.
-  const shadow = (fn, ctx) => fn('auto', { ...ctx, committed: Float64Array.from(committed) });
-
   // 2a. The car.
-  const evMode = modeFor(permissions.ev, approvals.ev);
+  const evMode = modeFor(permissions.ev);
   const ev = scheduleEv(evMode, { ...ctxBase, committed });
-  if (permissions.ev === 'ask' && approvals.ev !== true) {
-    const alt = shadow(scheduleEv, ctxBase);
-    requests.push({
-      id: 'ev', node: 'car', declined: approvals.ev === false,
-      title: 'May I move your charging?',
-      text: `Charge ${describeRuns(runs(alt.power))} instead of ${describeRuns(runs(ev.power))}. ` +
-        `Same charge by ${formatClock(promises.ev.departureClock)}: ` +
-        `£${(alt.cost / 100).toFixed(2)} instead of £${(ev.cost / 100).toFixed(2)}, ` +
-        `${Math.round(alt.windShare * 100)}% wind instead of ${Math.round(ev.windShare * 100)}%.`,
-      saving: ev.cost - alt.cost, windGain: alt.windShare - ev.windShare,
-    });
-  }
   for (let i = 0; i < SLOTS; i++) committed[i] += ev.power[i];
 
   // 2b. The bakery cold store.
-  const bakeryMode = modeFor(permissions.bakery, approvals.bakery);
+  const bakeryMode = modeFor(permissions.bakery);
   const cold = scheduleBakeryCold(bakeryMode, { ...ctxBase, committed });
-  if (permissions.bakery === 'ask' && approvals.bakery !== true) {
-    const alt = shadow(scheduleBakeryCold, ctxBase);
-    requests.push({
-      id: 'bakery', node: 'bakery', declined: approvals.bakery === false,
-      title: 'May I move the cold store?',
-      text: `Run the cold store ${describeRuns(runs(alt.power))} instead of ${describeRuns(runs(cold.power))}: ` +
-        `£${(alt.cost / 100).toFixed(2)} instead of £${(cold.cost / 100).toFixed(2)} for the same four hours of cooling.`,
-      saving: cold.cost - alt.cost, windGain: 0,
-    });
-  }
   for (let i = 0; i < SLOTS; i++) committed[i] += cold.power[i];
 
   // 3. The heat pump.
-  const heatMode = modeFor(permissions.heat, approvals.heat);
+  const heatMode = modeFor(permissions.heat);
   const heat = scheduleHeat(heatMode, { ...ctxBase, committed });
-  if (permissions.heat === 'ask' && approvals.heat !== true) {
-    const alt = shadow(scheduleHeat, ctxBase);
-    requests.push({
-      id: 'heat', node: 'home', declined: approvals.heat === false,
-      title: 'May I warm the house early?',
-      text: `Pre-warm the house while the wind blows and coast through the dear hours, staying inside ${heat.band.label}: ` +
-        `£${(alt.cost / 100).toFixed(2)} instead of £${(heat.cost / 100).toFixed(2)}.`,
-      saving: heat.cost - alt.cost, windGain: 0,
-    });
-  }
   for (let i = 0; i < SLOTS; i++) committed[i] += heat.power[i];
 
   // 4. The battery.
-  const batteryMode = modeFor(permissions.battery, approvals.battery);
+  const batteryMode = modeFor(permissions.battery);
   const battery = scheduleBattery(batteryMode, { ...ctxBase, committed });
-  if (permissions.battery === 'ask' && approvals.battery !== true) {
-    const alt = shadow(scheduleBattery, ctxBase);
-    requests.push({
-      id: 'battery', node: 'battery', declined: approvals.battery === false,
-      title: 'May I use the battery?',
-      text: `Store ${alt.chargeKwh.toFixed(1)} kWh while electricity is cheap and release it at the peaks: ` +
-        `worth £${(-alt.cost / 100).toFixed(2)} over the day${alt.cableKwh > 0 ? `, and ${alt.cableKwh.toFixed(1)} kWh to keep the street's cable inside its limit` : ''}.`,
-      saving: -alt.cost, windGain: 0,
-    });
-  }
   for (let i = 0; i < SLOTS; i++) committed[i] += battery.power[i];
 
   // 5. The cable.
@@ -433,13 +363,15 @@ export function simulate(input = {}) {
     conflicts.push({
       id: 'ev-feasible', node: 'car', severity: 'hard',
       title: 'I cannot make both of those true.',
-      text: `Charging at ${SCENARIO.ev.chargerKw} kW from ${formatClock(slotHour(ev.from))}, the car reaches ` +
-        `${Math.round(ev.reachedPct)}% by ${formatClock(promises.ev.departureClock)}. ` +
-        `It would be at ${promises.ev.targetPct}% by ${formatClock(ev.latestFullClock)}.`,
+      text: (ev.boundReason === 'FEEDER_HEADROOM_BINDING'
+        ? `The street's cable leaves too little room for the charger before ${formatClock(promises.ev.departureClock)}: ` 
+        : `Charging at ${SCENARIO.ev.chargerKw} kW from ${formatClock(slotHour(ev.from))} is not enough time: `) +
+        `the most the car can reach is ${Math.round(ev.maxPct)}%` +
+        (ev.latestFullClock != null ? `. It would be at ${promises.ev.targetPct}% by ${formatClock(ev.latestFullClock)}.` : '.'),
       options: [
-        { id: 'accept', label: `Leave at ${formatClock(promises.ev.departureClock)} with ${Math.round(ev.reachedPct)}%` },
-        { id: 'later', label: `Leave at ${formatClock(Math.ceil(ev.latestFullClock * 2) / 2)} with ${promises.ev.targetPct}%`,
-          apply: { promises: { ev: { departureClock: Math.ceil(ev.latestFullClock * 2) / 2 } } } },
+        { id: 'accept', label: `Leave at ${formatClock(promises.ev.departureClock)} with ${Math.round(ev.maxPct)}%`, apply: { promises: { ev: { targetPct: Math.floor(ev.maxPct / 10) * 10 } } } },
+        ...(ev.latestFullClock != null ? [{ id: 'later', label: `Leave at ${formatClock(Math.ceil(ev.latestFullClock * 2) / 2)} with ${promises.ev.targetPct}%`,
+          apply: { promises: { ev: { departureClock: Math.ceil(ev.latestFullClock * 2) / 2 } } } }] : []),
       ],
     });
   }
@@ -453,21 +385,16 @@ export function simulate(input = {}) {
         `Which should I prioritise?`,
       options: [
         { id: 'departure', label: `The departure target (£${(pc.costIfDeparture / 100).toFixed(2)})`, apply: { resolutions: { evPriority: 'departure' } } },
-        { id: 'price', label: `The price limit (${Math.round(pc.priority === 'price' ? ev.reachedPct : 0) || '…'}% at departure)`, apply: { resolutions: { evPriority: 'price' } } },
+        { id: 'price', label: `The price limit (${Math.round(pc.maxPctWithinBudget)}% at departure)`, apply: { resolutions: { evPriority: 'price' } } },
       ],
     });
-    // Fill in the "price" option's percentage from a shadow run.
-    if (pc.priority !== 'price') {
-      const alt = scheduleEv(evMode, { ...ctxBase, committed: Float64Array.from(load), resolutions: { evPriority: 'price' } });
-      conflicts[conflicts.length - 1].options[1].label = `The price limit (${Math.round(alt.reachedPct)}% at departure)`;
-    }
   }
   if (overload.length) {
     const locked = [];
-    if (permissions.ev !== 'auto' || approvals.ev === false) locked.push({ id: 'ev', name: 'your car' });
-    if (permissions.bakery !== 'auto' || approvals.bakery === false) locked.push({ id: 'bakery', name: "the bakery's cold store" });
-    if (permissions.heat !== 'auto' || approvals.heat === false) locked.push({ id: 'heat', name: 'your heating' });
-    if (permissions.battery !== 'auto' || approvals.battery === false) locked.push({ id: 'battery', name: 'the battery' });
+    if (permissions.ev === 'never') locked.push({ id: 'ev', name: 'your car' });
+    if (permissions.bakery === 'never') locked.push({ id: 'bakery', name: "the bakery's cold store" });
+    if (permissions.heat === 'never') locked.push({ id: 'heat', name: 'your heating' });
+    if (permissions.battery === 'never') locked.push({ id: 'battery', name: 'the battery' });
     const worst = overload.reduce((a, i) => (feeder[i] > feeder[a] ? i : a), overload[0]);
     conflicts.push({
       id: 'cable', node: 'substation', severity: locked.length ? 'choice' : 'hard',
@@ -488,7 +415,7 @@ export function simulate(input = {}) {
       slot: Math.max(0, evRuns[0].from - 1), node: 'car', kind: evMode === 'auto' ? 'schedule' : 'default',
       text: evMode === 'auto'
         ? `Car: charging ${describeRuns(evRuns)} — the windiest, cheapest hours before ${formatClock(promises.ev.departureClock)}.`
-        : `Car: charging as soon as it was plugged in, ${describeRuns(evRuns)}.`,
+        : `Car: charging as soon as it was plugged in, ${describeRuns(evRuns)} — nobody was coordinating it.`,
     });
     decisions.push({ slot: ev.depart, node: 'car', kind: 'outcome', text: `Car ready: ${Math.round(ev.reachedPct)}% at ${formatClock(promises.ev.departureClock)}.` });
   }
@@ -514,7 +441,6 @@ export function simulate(input = {}) {
     }
     lastB = w;
   }
-  for (const r of requests) decisions.push({ slot: 0, node: r.node, kind: 'ask', text: `${r.title} Waiting for you.` });
   decisions.sort((a, b) => a.slot - b.slot);
 
   /* ---------------- metrics ---------------- */
@@ -550,8 +476,8 @@ export function simulate(input = {}) {
     overloadMinutes: overload.length * 15,
     comfortMinutesOutside: heat.minutesOutside,
     carbonKg: carbonG / 1000,
-    requestsPending: requests.filter((r) => !r.declined).length,
     conflicts: conflicts.length,
+    status: conflicts.some((c) => c.severity === 'hard' || (c.severity === 'choice' && !c.resolved && c.id !== 'cable')) ? PlanStatus.PROVEN_INFEASIBLE : PlanStatus.FEASIBLE,
   };
 
   const result = {
@@ -563,7 +489,8 @@ export function simulate(input = {}) {
     },
     parts: { ev, cold, heat, battery, ovens },
     modes: { ev: evMode, bakery: bakeryMode, heat: heatMode, battery: batteryMode },
-    decisions, requests, conflicts, metrics, overload,
+    decisions, conflicts, metrics, overload,
+    schedules: { ev: ev.power, bakery: cold.power, heat: heat.power, battery: battery.power },
   };
   if (withBaseline) {
     const base = simulate({ promises, permissions: { ev: 'never', heat: 'never', battery: 'never', bakery: 'never' }, withBaseline: false });
@@ -610,7 +537,7 @@ function explainAll(r) {
         : `Charged as soon as it was plugged in, ${describeRuns(evRuns)}; ${Math.round(ev.reachedPct)}% at departure for ${money(ev.cost)}, ${Math.round(ev.windShare * 100)}% of it wind.`,
     },
     knew: [
-      `Departure ${formatClock(pr.ev.departureClock)}; ${pr.ev.targetPct}% wanted, ${SCENARIO.ev.startPct}% on arrival: ${ev.energyNeeded.toFixed(0)} kWh to add at ${SCENARIO.ev.chargerKw} kW (${(ev.need * DT).toFixed(2)} h).`,
+      `Departure ${formatClock(pr.ev.departureClock)}; ${pr.ev.targetPct}% wanted, ${SCENARIO.ev.startPct}% on arrival: ${ev.energyNeeded.toFixed(0)} kWh into the battery, ${ev.acNeeded.toFixed(0)} kWh from the socket at ${Math.round(SCENARIO.ev.chargingEfficiency * 100)}% efficiency, ${(ev.acNeeded / SCENARIO.ev.chargerKw).toFixed(1)} h at ${SCENARIO.ev.chargerKw} kW.`,
       `The scenario's wind forecast: strongest at ${formatClock(slotHour(windPeakSlot))} (${series.wind[windPeakSlot].toFixed(0)} kW to the street).`,
       `The scenario's tariff: cheapest at ${formatClock(slotHour(cheapestSlot))} (${series.price[cheapestSlot].toFixed(0)}p), dearest in the evening (${Math.max(...series.price).toFixed(0)}p).`,
       `The street's cable carries ${limit} kW, and what the bakery and the other homes already need.`,
@@ -627,8 +554,17 @@ function explainAll(r) {
       `Cost ${money(ev.cost)}; ${Math.round(ev.windShare * 100)}% of the charge arrived while wind and sun could cover the street.`,
       ev.feasible
         ? `Protected the target: ${Math.round(ev.reachedPct)}% at ${formatClock(pr.ev.departureClock)}.`
-        : `Could not reach the target: ${Math.round(ev.reachedPct)}% at ${formatClock(pr.ev.departureClock)} — raised it with you instead of guessing.`,
+        : `Could not reach the target: at most ${Math.round(ev.maxPct)}% by ${formatClock(pr.ev.departureClock)} — raised it with you instead of guessing.`,
     ],
+    technical: {
+      status: ev.status, reasonCodes: ev.trace.reasonCodes, bindingConstraints: ev.trace.bindingConstraints, observations: ev.trace.observations,
+      assumptions: [
+        `Battery ${SCENARIO.ev.capacityKwh} kWh; charger ${SCENARIO.ev.chargerKw} kW AC, continuously variable; charging efficiency ${SCENARIO.ev.chargingEfficiency} constant.`,
+        'Cost = the car\'s AC energy × the scenario tariff. Excludes standing charges, the rest of the home, export and any network payments.',
+        'Cheapest-slot-first with per-slot caps (charger, cable headroom). For one divisible load this is optimal, so the minimum cost and the capacity/budget bounds are proofs.',
+        'Aggregate real power only: no voltage, frequency, phases or losses in the cable are modelled.',
+      ],
+    },
   };
 
   const hrs = runs(heat.power);
@@ -659,6 +595,14 @@ function explainAll(r) {
         : 'Ran as a plain thermostat, ignoring price, wind and the cable.',
       `${heat.kwh.toFixed(1)} kWh for ${money(heat.cost)}; house ${heat.minutesOutside === 0 ? 'stayed inside the band all day' : `outside the band for ${heat.minutesOutside} min`}.`,
     ],
+    technical: {
+      status: PlanStatus.FEASIBLE, reasonCodes: [...new Set(heat.reasons.filter((w) => w && w !== 'thermostat').map((w) => ({ preheat: 'PREWARM_ON_CHEAP_SLOTS', coast: 'COAST_THROUGH_DEAR_SLOTS', shed: 'SHED_FOR_FEEDER_HEADROOM', hold: 'HOLD_COMFORT_FLOOR' }[w])))],
+      bindingConstraints: [`comfort band ${heat.band.label}`], observations: [{ key: 'kWh', value: +heat.kwh.toFixed(2), unit: 'kWh' }, { key: 'minutesOutsideBand', value: heat.minutesOutside, unit: 'min' }],
+      assumptions: [
+        `T_next = T + dt × (COP × P_heat − loss × (T − T_out)) / C, with C = ${SCENARIO.home.thermalCapacityKwhPerC} kWh/°C, loss = ${SCENARIO.home.heatLossKwPerC} kW/°C, COP = ${SCENARIO.home.heatPumpCop}, heat pump ${SCENARIO.home.heatPumpKw} kW electrical. Illustrative, single-zone, no solar gain or ventilation.`,
+        'Rules, in order: hold the floor; pause for the cable if the house can coast; pre-warm on the cheapest 35 % of the next 8 h; coast on the dearest 35 %; otherwise thermostat at the middle of the band.',
+      ],
+    },
   };
 
   const coldRuns = runs(cold.power);
@@ -685,6 +629,13 @@ function explainAll(r) {
         ? `Cold store placed in the cheapest hours that fit: ${describeRuns(coldRuns, { all: true })}, ${money(cold.cost)}.`
         : `Cold store ran at the start of its window, ${describeRuns(coldRuns)}, ${money(cold.cost)}.`,
     ],
+    technical: {
+      status: cold.status, reasonCodes: cold.trace.reasonCodes, bindingConstraints: cold.trace.bindingConstraints, observations: cold.trace.observations,
+      assumptions: [
+        `Ovens: ${SCENARIO.bakery.preheatHours} h at ${SCENARIO.bakery.ovenPreheatKw} kW before opening, then ${SCENARIO.bakery.bakingKw} kW for ${SCENARIO.bakery.bakingHours} h — an uninterrupted process locked to the opening time.`,
+        `Cold store: ${SCENARIO.bakery.coldStoreHours} h at ${SCENARIO.bakery.coldStoreKw} kW in whole quarter-hours between ${formatClock(SCENARIO.bakery.coldWindowStartClock)} and ${formatClock(SCENARIO.bakery.coldWindowEndClock)}; a run is only placed where the cable has room for its full power.`,
+      ],
+    },
   };
 
   const bRuns = runs(bat.power.map((p) => Math.abs(p)));
@@ -712,6 +663,11 @@ function explainAll(r) {
         ? `Charged in the cheapest third of the day, discharged in the dearest third${bat.cableKwh > 0 ? ' and whenever the cable was over its limit' : ''}.`
         : 'No cheap energy was stored, no peak was shaved.',
     ],
+    technical: {
+      status: PlanStatus.FEASIBLE, reasonCodes: [...new Set(bat.reasons.filter(Boolean).map((w) => ({ store: 'STORE_ON_CHEAP_SLOTS', peak: 'DISCHARGE_ON_DEAR_SLOTS', cable: 'DISCHARGE_FOR_FEEDER_HEADROOM' }[w])))],
+      bindingConstraints: [`${SCENARIO.battery.minPct}% reserve`, `${SCENARIO.battery.powerKw} kW`], observations: [{ key: 'chargedKwh', value: +bat.chargeKwh.toFixed(2), unit: 'kWh' }, { key: 'peakKwh', value: +bat.peakKwh.toFixed(2), unit: 'kWh' }, { key: 'cableKwh', value: +bat.cableKwh.toFixed(2), unit: 'kWh' }],
+      assumptions: ['Round-trip losses are not modelled in this version; 100 % efficiency is an acknowledged simplification. Export earns the same price as import in the scenario.'],
+    },
   };
 
   out.wind = {
@@ -779,7 +735,7 @@ function explainAll(r) {
 /* Lessons: what this particular day taught, computed from the result   */
 /* ------------------------------------------------------------------ */
 
-export function lessons(r, prev) {
+export function lessons(r, prev, opts = {}) {
   const m = r.metrics;
   const b = r.baseline;
   const out = [];
@@ -806,11 +762,16 @@ export function lessons(r, prev) {
       text: `The cable was over its limit for ${m.overloadMinutes} minutes. Software cannot wish a physical limit away; it can only ask for permission to move things.`,
     });
   }
-  if (m.requestsPending > 0) {
-    const cost = r.requests.filter((q) => !q.declined).reduce((t, q) => t + Math.max(0, q.saving), 0);
+  if (opts.pending) {
     out.push({
       key: 'ask-cost', icon: 'hand',
-      text: `Asking first is a real choice with a real price: while ${m.requestsPending} request${m.requestsPending > 1 ? 's wait' : ' waits'} for you, the day costs about ${money(cost)} more than it needs to. Staying in control is allowed to cost something.`,
+      text: `A change to the agreed plan is waiting for you. Until you answer, the world keeps the plan you already accepted: nothing is changed behind your back, and the new promise is not confirmed. Staying in control is allowed to cost something.`,
+    });
+  }
+  if (opts.declined) {
+    out.push({
+      key: 'declined', icon: 'hand',
+      text: `You declined a change. The agreed plan and the agreed promise stayed in force; the system did not quietly do it anyway. That boundary is the point, not a failure.`,
     });
   }
   if (r.parts.heat.preheatSlots > 0 && r.modes.heat === 'auto') {

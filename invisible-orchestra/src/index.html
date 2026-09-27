@@ -14,6 +14,7 @@
     <div class="year">2037.</div>
     <div class="line">Life carries on.</div>
     <div class="touch">Touch to see what makes it possible.</div>
+    <div class="illus">Illustrative 2037 scenario · nothing here is a forecast, a tariff or a real network</div>
   </div>
 
   <div id="clock" aria-live="off">
@@ -46,6 +47,8 @@
         <thead><tr><th>What the system knew</th><th>What it was allowed to do</th><th>What it decided</th></tr></thead>
         <tbody><tr><td></td><td></td><td></td></tr></tbody>
       </table>
+      <button class="techbtn" type="button">Technical detail</button>
+      <div class="tech hidden"></div>
     </div>
     <footer>
       <button class="release primary" type="button">Release</button>
@@ -67,6 +70,7 @@
   </div>
 
   <div id="controls">
+    <button id="chipWhy" class="chip why hidden" type="button">Why did charging happen then?</button>
     <button id="chipChanged" class="chip hidden" type="button">What changed</button>
     <button id="chipLessons" class="chip hidden" type="button">What this day taught</button>
     <button id="btnPause" class="round" type="button" aria-label="Pause or play" title="Pause"><svg viewBox="0 0 24 24" class="ic-pause"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><svg viewBox="0 0 24 24" class="ic-play"><path d="M8 5v14l11-7z"/></svg></button>

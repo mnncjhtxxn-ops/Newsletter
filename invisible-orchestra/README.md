@@ -43,6 +43,14 @@ The intelligence is a small, inspectable, rule-based scheduler (`src/sim/engine.
 
 A dynamic tariff and a carbon intensity curve are part of the scenario. They are invented for the story and do not represent any real market, network or bill.
 
+### What "ask me first" means
+
+Each flexible load has an *agreed* plan. Under **automatic**, a replan replaces it at once. Under **ask me first**, a change to that load's schedule is proposed and waits: the modelled clock stops, the agreed plan stays in force, and nothing is dispatched until the visitor says yes. Saying no keeps the agreed plan *and* the agreed promise; the new promise is never confirmed by the back door. Under **never**, the load runs the way it would with nobody coordinating it.
+
+### Verified planner and fixtures
+
+The car and the cold store are scheduled by `src/sim/planner.js`: cheapest available quarter-hours first, capped per slot by the charger and by the cable's remaining headroom, with charging efficiency applied. For one divisible load with per-slot caps this is optimal, so the minimum cost and the capacity / budget bounds it reports are proofs. That is what lets it say `PROVEN_INFEASIBLE` honestly. The handover's fixtures F01–F08 (`scenarios/EV_NUMERICAL_FIXTURES_v1.0.json`) run against it in `tests/fixtures.test.js`.
+
 ### Order of play (deterministic)
 
 1. Fixed loads: the other homes, the home base load, the ovens.
@@ -51,7 +59,7 @@ A dynamic tariff and a carbon intensity curve are part of the scenario. They are
 4. The battery balances what is left.
 5. The cable is checked. Anything it cannot solve becomes an explicit conflict card with real options.
 
-Under *ask me first* a load behaves as if nobody was coordinating it until the visitor answers, and the request card quantifies what saying yes would do. Under *never* it runs the way it would with no coordination. A "no coordination" baseline is computed for every run so the lessons can say what the orchestra actually changed.
+A "no coordination" baseline is computed for every run so the lessons can say what the orchestra actually changed.
 
 ## The four business perspectives, in one experience
 
@@ -129,7 +137,10 @@ src/
   ui/audio.js        optional synthesised musical layer
   main.js            state machine, overlay, camera, loop
   index.html, styles.css
-tests/engine.test.js
+  sim/planner.js     verified cheapest-slot planner with provable bounds; authority review
+scenarios/           the handover's numerical fixtures (F01–F08)
+tests/               engine tests and fixture tests
+docs/                test ledger, limitations, operator guide, spec gap analysis
 build.js             bundles everything into dist/invisible-orchestra.html
 ```
 

@@ -1,0 +1,170 @@
+{
+  "title": "Invisible Orchestra: checked EV diagnostic fixtures",
+  "version": "1.0",
+  "status": "Synthetic specification fixtures; not a public production scenario or real tariff data",
+  "units": {
+    "time": "minutes after midnight of one fictional day; interval starts inclusive, ends exclusive",
+    "power": "kW; EV charger input is AC",
+    "energy": "kWh; target and initial energy are stored battery energy",
+    "cost": "GBP; only EV AC charging consumption at the synthetic tariff"
+  },
+  "costBoundaryExclusions": [
+    "essential household load",
+    "standing charges",
+    "export revenues",
+    "network payments"
+  ],
+  "energyToleranceKWh": 1e-06,
+  "baseScenario": {
+    "horizonStartMinutes": 60,
+    "horizonEndMinutes": 420,
+    "slotMinutes": 15,
+    "batteryCapacityKWh": 60,
+    "initialStoredEnergyKWh": 12,
+    "targetStoredEnergyKWh": 30,
+    "chargerMaxACPowerKW": 7.2,
+    "chargerMinACPowerKW": 0,
+    "partialSlotAveragePowerAllowed": true,
+    "chargeEfficiency": 0.9,
+    "essentialFeederLoadKW": 2,
+    "gridImportLimitKW": 12,
+    "stationaryStorageEnabled": false,
+    "renewableGenerationEnabled": false,
+    "vehicleToGridEnabled": false,
+    "departureMinutes": 420,
+    "hardMaxCostGBP": null,
+    "rescheduleAuthority": "AUTOMATIC_WITHIN_LIMITS",
+    "tariffBands": [
+      {
+        "startMinutes": 60,
+        "endMinutes": 300,
+        "priceGBPPerKWh": 0.3
+      },
+      {
+        "startMinutes": 300,
+        "endMinutes": 420,
+        "priceGBPPerKWh": 0.1
+      }
+    ],
+    "tieBreak": "EARLIER_SLOT_FIRST"
+  },
+  "tests": [
+    {
+      "id": "F01",
+      "overrides": {},
+      "expected": {
+        "status": "FEASIBLE",
+        "ACInputEnergyKWh": 20,
+        "energyAddedKWh": 18,
+        "finalStoredEnergyKWh": 30,
+        "minimumChargingCostGBP": 3.12
+      }
+    },
+    {
+      "id": "F02",
+      "overrides": {
+        "departureMinutes": 300
+      },
+      "expected": {
+        "status": "FEASIBLE",
+        "ACInputEnergyKWh": 20,
+        "energyAddedKWh": 18,
+        "finalStoredEnergyKWh": 30,
+        "minimumChargingCostGBP": 6,
+        "costIncreaseVsF01GBP": 2.88
+      }
+    },
+    {
+      "id": "F03",
+      "overrides": {
+        "departureMinutes": 300,
+        "hardMaxCostGBP": 4
+      },
+      "expected": {
+        "status": "PROVEN_INFEASIBLE",
+        "minimumCostToMeetTargetGBP": 6,
+        "diagnosticMaxFinalEnergyKWh": 24,
+        "diagnosticShortfallKWh": 6,
+        "reason": "BUDGET_TARGET_CONFLICT"
+      }
+    },
+    {
+      "id": "F04",
+      "overrides": {
+        "departureMinutes": 180
+      },
+      "expected": {
+        "status": "PROVEN_INFEASIBLE",
+        "diagnosticMaxFinalEnergyKWh": 24.96,
+        "diagnosticShortfallKWh": 5.04,
+        "reason": "CHARGER_POWER_AND_TIME_LIMIT"
+      }
+    },
+    {
+      "id": "F05",
+      "overrides": {
+        "departureMinutes": 300,
+        "gridImportLimitKW": 6
+      },
+      "expected": {
+        "status": "PROVEN_INFEASIBLE",
+        "availableChargerHeadroomKW": 4,
+        "diagnosticMaxFinalEnergyKWh": 26.4,
+        "diagnosticShortfallKWh": 3.6,
+        "reason": "FEEDER_HEADROOM_BINDING"
+      }
+    },
+    {
+      "id": "F06",
+      "overrides": {
+        "departureMinutes": 420,
+        "gridImportLimitKW": 6
+      },
+      "expected": {
+        "status": "FEASIBLE",
+        "ACInputEnergyKWh": 20,
+        "energyAddedKWh": 18,
+        "finalStoredEnergyKWh": 30,
+        "minimumChargingCostGBP": 4.4
+      }
+    },
+    {
+      "id": "F07",
+      "kind": "REPEATABILITY",
+      "basedOn": "F01",
+      "expected": {
+        "same": [
+          "schedule",
+          "metrics",
+          "eventOrdering",
+          "deterministicDecisionTrace"
+        ],
+        "excludeFromComparison": [
+          "wallClockTimestamps",
+          "randomSessionId",
+          "diagnosticTimings"
+        ]
+      }
+    },
+    {
+      "id": "F08",
+      "kind": "AUTHORITY",
+      "basedOn": "F02",
+      "overrides": {
+        "rescheduleAuthority": "ASK_BEFORE_CHANGING"
+      },
+      "expected": {
+        "beforeResponse": "AWAITING_PERMISSION",
+        "changedPlanDispatchedWhilePending": false,
+        "onApproval": "Validate and dispatch the F02 plan",
+        "onDecline": "Do not confirm the new 05:00 promise or dispatch its changed schedule; show the last accepted promise and revalidate physical availability."
+      }
+    }
+  ],
+  "important": [
+    "Infeasible diagnostic maxima are not authorised dispatch plans.",
+    "No local generation/storage in these fixtures; public scenarios must have their own validated data.",
+    "Do not hard-code fixture outputs into rendering or explanatory copy.",
+    "F07 and F08 are implementation test requirements, not tests executed on an app by this handover."
+  ]
+}

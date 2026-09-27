@@ -90,8 +90,9 @@ export const SCENARIO = {
     startTempC: 20.5,
   },
   ev: {
-    capacityKwh: 90,
+    capacityKwh: 75,
     chargerKw: 7,
+    chargingEfficiency: 0.9, // share of AC energy that ends up in the battery
     arriveSlot: 0, // plugged in at 18:00
     startPct: 20,
   },
@@ -143,5 +144,5 @@ export const PERMISSION_WORDS = {
 
 export const EV_DEPARTURE_OPTIONS = [4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
 export const EV_TARGET_OPTIONS = [60, 80, 100];
-export const EV_PRICE_CAP_OPTIONS = [null, 600, 400];
+export const EV_PRICE_CAP_OPTIONS = [null, 500, 350];
 export const BAKERY_OPENING_OPTIONS = [4, 4.5, 5, 5.5, 6, 6.5, 7];

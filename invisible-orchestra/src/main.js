@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { simulate, lessons, runs, describeRuns } from './sim/engine.js';
+import { reviewAuthority, PlanStatus } from './sim/planner.js';
 import {
   SLOTS, slotHour, formatClock, SCENARIO, COMFORT_BANDS, DEFAULT_PROMISES, DEFAULT_PERMISSIONS,
   EV_DEPARTURE_OPTIONS, EV_TARGET_OPTIONS, EV_PRICE_CAP_OPTIONS, BAKERY_OPENING_OPTIONS,
@@ -32,7 +33,26 @@ function saveSettings() { try { localStorage.setItem('orchestra.settings', JSON.
 /* Scene                                                                */
 /* ------------------------------------------------------------------ */
 const canvas = $('#gl');
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || false;
+function fatal(title, text) {
+  const d = document.createElement('div');
+  d.id = 'fatal';
+  d.innerHTML = `<div class="box"><div class="t">${title}</div><div class="s">${text}</div></div>`;
+  document.body.appendChild(d);
+}
+{
+  const probe = document.createElement('canvas');
+  const gl2 = probe.getContext('webgl2');
+  if (!gl2) {
+    fatal('This screen cannot show The Invisible Orchestra.', 'The browser or graphics driver on this station does not provide WebGL 2. Staff: check the graphics driver and that hardware acceleration is enabled in Edge, then relaunch.');
+    throw new Error('WebGL2 unavailable');
+  }
+  const ext = gl2.getExtension('WEBGL_lose_context');
+  if (ext) ext.loseContext();
+}
 const R = createRenderer(canvas, { scale: settings.scale });
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); if (!$('#fatal')) fatal('One moment.', 'The graphics context was interrupted. Recovering…'); });
+canvas.addEventListener('webglcontextrestored', () => { $('#fatal')?.remove(); });
 const nodes = new Nodes(R.scene);
 const ribbons = buildRibbons(nodes);
 for (const k in ribbons.energy) R.scene.add(ribbons.energy[k].points);
@@ -59,7 +79,11 @@ const app = {
   timeScaleCur: 1,
   paused: false,
   holding: false,
-  input: { promises: clone(DEFAULT_PROMISES), permissions: clone(DEFAULT_PERMISSIONS), approvals: {}, resolutions: {} },
+  // input = the visitor's draft; accepted = the agreed intent the world runs on
+  input: { promises: clone(DEFAULT_PROMISES), permissions: clone(DEFAULT_PERMISSIONS), resolutions: {} },
+  accepted: { promises: clone(DEFAULT_PROMISES), permissions: clone(DEFAULT_PERMISSIONS), resolutions: {} },
+  pending: null, // { input, sim, loads } — a proposed change waiting for the visitor
+  lastDeclined: false,
   sim: null,
   prevSim: null,
   reveal: { id: null, pull: 0, dirty: false },
@@ -95,9 +119,13 @@ for (const id of Object.keys(nodes.byId)) {
 /* ------------------------------------------------------------------ */
 /* Simulation plumbing                                                  */
 /* ------------------------------------------------------------------ */
-function resim({ replay = false } = {}) {
+/** Put a new agreed intent and its plan into the world. */
+function accept(input, sim, { replay = false } = {}) {
+  app.accepted = clone(input);
+  app.input = clone(input);
+  app.pending = null;
   app.prevSim = app.sim;
-  app.sim = simulate(app.input);
+  app.sim = sim;
   score.setSim(app.sim, replay ? app.prevSim : null);
   renderCards();
   renderPromise();
@@ -115,6 +143,56 @@ function resim({ replay = false } = {}) {
   } else {
     syncCursor();
   }
+}
+
+/**
+ * The visitor releases a draft. Loads set to "ask me first" may not have
+ * their agreed schedule changed without a yes: if the draft would change
+ * one, the world keeps the agreed plan, the modelled clock stops, and the
+ * proposal waits. Nothing is dispatched while it waits.
+ */
+function commitDraft() {
+  const proposed = simulate(app.input);
+  const review = reviewAuthority({ accepted: app.sim.schedules, proposed: proposed.schedules, permissions: app.input.permissions });
+  if (review.status === PlanStatus.AWAITING_PERMISSION) {
+    app.pending = { input: clone(app.input), sim: proposed, loads: review.pending };
+    app.timeScale = 0;
+    audio.setFrozen(true);
+    audio.ping('ask');
+    renderCards();
+    renderPromise();
+    return false;
+  }
+  accept(app.input, proposed, { replay: true });
+  return true;
+}
+function approvePending() {
+  if (!app.pending) return;
+  const { input, sim } = app.pending;
+  app.lastDeclined = false;
+  accept(input, sim, { replay: true });
+  audio.setFrozen(false);
+}
+function declinePending() {
+  if (!app.pending) return;
+  const wanted = app.pending.input.promises;
+  app.pending = null;
+  app.input = clone(app.accepted);
+  app.lastDeclined = true;
+  renderCards();
+  renderPromise();
+  const acc = app.accepted.promises;
+  const lines = [];
+  if (wanted.ev.departureClock !== acc.ev.departureClock || wanted.ev.targetPct !== acc.ev.targetPct) lines.push(`The car stays on the agreed plan: ${acc.ev.targetPct}% by ${formatClock(acc.ev.departureClock)}. Leaving at ${formatClock(wanted.ev.departureClock)} with ${wanted.ev.targetPct}% still needs a different plan.`);
+  if (wanted.home.comfort !== acc.home.comfort) lines.push(`The house stays ${COMFORT_BANDS[acc.home.comfort].words} (${COMFORT_BANDS[acc.home.comfort].label}).`);
+  if (wanted.bakery.openingClock !== acc.bakery.openingClock) lines.push(`The bakery still opens at ${formatClock(acc.bakery.openingClock)}.`);
+  if (!lines.length) lines.push('Nothing was changed behind your back.');
+  el.toast.innerHTML = `<div class="kicker">You said no</div><div class="big">Your agreed plan stays in force.</div><ul class="one">${lines.map((l) => `<li>${l}</li>`).join('')}</ul>`;
+  el.toast.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 9000);
+  if (app.mode !== 'reveal' && !app.paused) app.timeScale = 1;
+  audio.setFrozen(false);
 }
 function syncCursor() {
   const s = Math.floor(app.slotF);
@@ -197,16 +275,16 @@ function stateText(id, f, sim) {
 function renderPromise() {
   const p = app.sim.promises, pm = app.sim.permissions;
   const autoCount = Object.values(pm).filter((v) => v === 'auto').length;
-  el.promise.innerHTML = `<b>Your promises</b>Car ${p.ev.targetPct}% by ${formatClock(p.ev.departureClock)}${p.ev.priceCapPence != null ? ` for ≤ ${money(p.ev.priceCapPence)}` : ''} · home ${COMFORT_BANDS[p.home.comfort].label} · bakery opens ${formatClock(p.bakery.openingClock)}<br>${autoCount} of 4 things may be moved automatically`;
+  const askCount = Object.values(pm).filter((v) => v === 'ask').length;
+  el.promise.innerHTML = `<b>Your agreed promises</b>Car ${p.ev.targetPct}% by ${formatClock(p.ev.departureClock)}${p.ev.priceCapPence != null ? ` for ≤ ${money(p.ev.priceCapPence)}` : ''} · home ${COMFORT_BANDS[p.home.comfort].label} · bakery opens ${formatClock(p.bakery.openingClock)}<br>${autoCount} of 4 things may be moved automatically${askCount ? `, ${askCount} only after asking you` : ''}${app.pending ? '<br><span class="pend">A change is waiting for your answer</span>' : ''}`;
 }
 
-function applyChange(apply, { replay = true } = {}) {
+function applyChange(apply) {
   if (app.reveal.id) closeReveal();
   if (apply.promises) for (const k in apply.promises) Object.assign(app.input.promises[k], apply.promises[k]);
-  if (apply.permissions) for (const k in apply.permissions) { app.input.permissions[k] = apply.permissions[k]; delete app.input.approvals[k]; }
-  if (apply.approvals) Object.assign(app.input.approvals, apply.approvals);
+  if (apply.permissions) for (const k in apply.permissions) app.input.permissions[k] = apply.permissions[k];
   if (apply.resolutions) Object.assign(app.input.resolutions, apply.resolutions);
-  resim({ replay });
+  commitDraft();
 }
 
 function renderCards() {
@@ -228,20 +306,29 @@ function renderCards() {
     }
     el.cards.appendChild(d);
   }
-  for (const r of sim.requests) {
+  if (app.pending) {
+    const P = app.pending;
+    const names = { ev: 'your car', heat: 'your heating', bakery: "the bakery's cold store", battery: 'the battery' };
+    const acc = app.accepted.promises, want = P.input.promises;
+    const asks = [];
+    if (want.ev.departureClock !== acc.ev.departureClock || want.ev.targetPct !== acc.ev.targetPct || want.ev.priceCapPence !== acc.ev.priceCapPence) asks.push(`the car at ${want.ev.targetPct}% by ${formatClock(want.ev.departureClock)}${want.ev.priceCapPence != null ? ` for ≤ ${money(want.ev.priceCapPence)}` : ''}`);
+    if (want.home.comfort !== acc.home.comfort) asks.push(`the house ${COMFORT_BANDS[want.home.comfort].words}`);
+    if (want.bakery.openingClock !== acc.bakery.openingClock) asks.push(`the bakery open at ${formatClock(want.bakery.openingClock)}`);
+    const changes = P.loads.map((id) => {
+      const a = describeRuns(runs(app.sim.schedules[id])), b = describeRuns(runs(P.sim.schedules[id]));
+      return `<li><b>${names[id]}</b>: ${a} → ${b}</li>`;
+    }).join('');
+    const dCost = P.sim.metrics.homeCostPence - app.sim.metrics.homeCostPence;
     const d = document.createElement('div');
     d.className = 'card request';
-    d.innerHTML = `<div class="kicker">${r.declined ? 'You said not now' : 'Waiting for your permission'}</div><h3>${r.title}</h3><p>${r.text}</p><div class="opts"></div>`;
+    d.innerHTML = `<div class="kicker">Ask before changing an agreed plan</div><h3>${asks.length ? `You asked for ${asks.join(' and ')}.` : 'This would change an agreed plan.'} May I change the plan?</h3><p>You told me to ask before moving ${P.loads.map((id) => names[id]).join(' and ')}. The clock is stopped while you decide; the agreed plan stays in force until you say yes.</p><ul class="changes">${changes}</ul><p>Your home's day would be ${money(P.sim.metrics.homeCostPence)} (${dCost >= 0 ? '+' : '−'}${money(Math.abs(dCost))}).${P.sim.conflicts.length ? ' The new plan also raises a conflict you would need to settle.' : ''}</p><div class="opts"></div>`;
     const opts = d.querySelector('.opts');
-    const yes = document.createElement('button'); yes.type = 'button'; yes.textContent = r.declined ? 'Allow after all' : 'Yes, move it';
-    yes.addEventListener('click', () => { noteInput(); applyChange({ approvals: { [r.id]: true } }); });
-    opts.appendChild(yes);
-    if (!r.declined) {
-      const no = document.createElement('button'); no.type = 'button'; no.className = 'ghost'; no.textContent = 'Not now';
-      no.addEventListener('click', () => { noteInput(); applyChange({ approvals: { [r.id]: false } }); });
-      opts.appendChild(no);
-    }
-    el.cards.appendChild(d);
+    const yes = document.createElement('button'); yes.type = 'button'; yes.textContent = 'Yes, change the plan';
+    yes.addEventListener('click', () => { noteInput(); approvePending(); });
+    const no = document.createElement('button'); no.type = 'button'; no.className = 'ghost'; no.textContent = 'No, keep the agreed plan';
+    no.addEventListener('click', () => { noteInput(); declinePending(); });
+    opts.appendChild(yes); opts.appendChild(no);
+    el.cards.prepend(d);
   }
 }
 
@@ -265,19 +352,30 @@ function diffLines(a, b) {
   const ca = describeRuns(runs(a.series.cold)), cb = describeRuns(runs(b.series.cold));
   if (ca !== cb) out.push(`Bakery cold store: ${ca} → <b>${cb}</b>`);
   if (b.conflicts.length) out.push(`<b class="up">${b.conflicts.length} decision${b.conflicts.length > 1 ? 's' : ''} need${b.conflicts.length > 1 ? '' : 's'} you</b>`);
-  if (b.requests.filter((r) => !r.declined).length) out.push(`<b>${b.requests.filter((r) => !r.declined).length} request${b.requests.length > 1 ? 's' : ''} waiting for permission</b>`);
+  return out;
+}
+function changedInputs(a, b) {
+  const out = [];
+  if (a.promises.ev.departureClock !== b.promises.ev.departureClock) out.push(`departure ${formatClock(a.promises.ev.departureClock)} → ${formatClock(b.promises.ev.departureClock)}`);
+  if (a.promises.ev.targetPct !== b.promises.ev.targetPct) out.push(`car target ${a.promises.ev.targetPct}% → ${b.promises.ev.targetPct}%`);
+  if (a.promises.ev.priceCapPence !== b.promises.ev.priceCapPence) out.push(`spending limit ${a.promises.ev.priceCapPence == null ? 'none' : money(a.promises.ev.priceCapPence)} → ${b.promises.ev.priceCapPence == null ? 'none' : money(b.promises.ev.priceCapPence)}`);
+  if (a.promises.home.comfort !== b.promises.home.comfort) out.push(`home ${COMFORT_BANDS[a.promises.home.comfort].label} → ${COMFORT_BANDS[b.promises.home.comfort].label}`);
+  if (a.promises.bakery.openingClock !== b.promises.bakery.openingClock) out.push(`bakery opens ${formatClock(a.promises.bakery.openingClock)} → ${formatClock(b.promises.bakery.openingClock)}`);
+  for (const k of ['ev', 'heat', 'bakery', 'battery']) if (a.permissions[k] !== b.permissions[k]) out.push(`${{ ev: 'car', heat: 'heating', bakery: 'cold store', battery: 'battery' }[k]} permission: ${a.permissions[k]} → ${b.permissions[k]}`);
+  if (a.resolutions.evPriority !== b.resolutions.evPriority) out.push(`priority: ${b.resolutions.evPriority === 'price' ? 'the price limit' : 'the departure target'}`);
   return out;
 }
 function showToast(auto = true) {
   if (!app.prevSim) return;
   const lines = diffLines(app.prevSim, app.sim);
-  el.toast.innerHTML = `<div class="kicker">Replaying the same day</div><div class="big">Same equipment. Same weather. Different human requirements.</div><ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul>`;
+  const changed = changedInputs(app.prevSim, app.sim);
+  el.toast.innerHTML = `<div class="kicker">Replaying the same day</div><div class="big">Same starting point. ${changed.length ? changed[0].charAt(0).toUpperCase() + changed[0].slice(1) + '.' : 'Different human requirements.'}</div>${changed.length > 1 ? `<div class="also">Also: ${changed.slice(1).join(' · ')}.</div>` : ''}<ul>${lines.map((l) => `<li>${l}</li>`).join('')}</ul><div class="fine">Same equipment, same weather, same tariff. "Your home's day" = the car, heating, battery and base load at the scenario tariff.</div>`;
   el.toast.classList.remove('hidden');
   clearTimeout(toastTimer);
   if (auto) toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 11000);
 }
 function showLessons() {
-  const ls = lessons(app.sim, app.prevSim);
+  const ls = lessons(app.sim, app.prevSim, { pending: !!app.pending, declined: app.lastDeclined });
   el.lessons.querySelector('ol').innerHTML = ls.map((l, i) => `<li><span class="n">${i + 1}</span><span>${l.text}</span></li>`).join('');
   el.lessons.classList.remove('hidden');
   el.toast.classList.add('hidden');
@@ -325,10 +423,17 @@ function openReveal(id, { viaPull = false } = {}) {
   tds[0].innerHTML = ex.knew.map((t) => `<div>${t}</div>`).join('');
   tds[1].innerHTML = ex.allowed.map((t) => `<div>${t}</div>`).join('');
   tds[2].innerHTML = ex.decided.map((t) => `<div>${t}</div>`).join('');
-  p.classList.remove('deep');
+  const tech = p.querySelector('.tech');
+  if (ex.technical) {
+    const t = ex.technical;
+    tech.innerHTML = `<div class="row"><span>Status</span><code>${t.status}</code></div><div class="row"><span>Reason codes</span><code>${t.reasonCodes.join(', ') || '—'}</code></div><div class="row"><span>Binding limits</span><span>${t.bindingConstraints.join('; ') || '—'}</span></div>${t.observations.length ? `<div class="row"><span>Evidence</span><span>${t.observations.map((o) => `${o.key} = ${o.value}${o.unit ? ' ' + o.unit : ''}`).join(' · ')}</span></div>` : ''}<div class="row"><span>Assumptions</span><span>${t.assumptions.map((a) => `<div>${a}</div>`).join('')}</span></div>`;
+    tech.classList.remove('hidden');
+  } else tech.classList.add('hidden');
+  p.classList.remove('deep', 'tech-open');
   renderControls(id);
   p.querySelector('.release').classList.remove('dirty');
   p.querySelector('.release').textContent = 'Release';
+  if (app.pending) p.querySelector('.controls').insertAdjacentHTML('afterbegin', '<div class="ctl pendnote">A change to the agreed plan is waiting for your answer. Answer it first, or edit again to replace it.</div>');
   p.classList.remove('hiddenpanel');
   if (!viaPull) { p.classList.remove('pulling'); p.classList.add('open'); p.style.setProperty('--pull', 1); }
   audio.setFrozen(true);
@@ -382,16 +487,17 @@ function markDirty() {
   app.reveal.dirty = true;
   const b = el.panel.querySelector('.release');
   b.classList.add('dirty');
-  b.textContent = 'Release and replay the day';
+  b.textContent = 'Replay with this change';
 }
 function closeReveal({ replay = false } = {}) {
   el.panel.classList.remove('open', 'pulling');
   el.panel.style.setProperty('--pull', 0);
   app.reveal.id = null;
-  if (replay) resim({ replay: true });
-  else app.mode = app.mode === 'replay' ? 'replay' : 'live';
-  if (!app.paused) app.timeScale = 1;
-  audio.setFrozen(false);
+  let accepted = true;
+  if (replay) accepted = commitDraft();
+  else app.mode = 'live';
+  if (!app.paused && accepted && !app.pending) app.timeScale = 1;
+  if (accepted && !app.pending) audio.setFrozen(false);
 }
 
 /* ------------------------------------------------------------------ */
@@ -412,7 +518,10 @@ function leaveAttract() {
   if (settings.sound) { audio.enable(); el.btnSound.classList.add('on'); }
 }
 function resetToAttract() {
-  app.input = { promises: clone(DEFAULT_PROMISES), permissions: clone(DEFAULT_PERMISSIONS), approvals: {}, resolutions: {} };
+  app.input = { promises: clone(DEFAULT_PROMISES), permissions: clone(DEFAULT_PERMISSIONS), resolutions: {} };
+  app.accepted = clone(app.input);
+  app.pending = null;
+  app.lastDeclined = false;
   app.prevSim = null;
   app.sim = simulate(app.input);
   score.setSim(app.sim, null);
@@ -489,7 +598,7 @@ touch.on('tap', ({ node }) => {
 touch.on('up', () => {
   app.holding = false;
   app.touch.targetStrength = 0;
-  if (app.mode !== 'reveal' && !app.paused) { setTimeout(() => { if (!app.holding && app.mode !== 'reveal' && !app.paused) { app.timeScale = 1; audio.setFrozen(false); } }, 700); }
+  if (app.mode !== 'reveal' && !app.paused) { setTimeout(() => { if (!app.holding && app.mode !== 'reveal' && !app.paused && !app.pending) { app.timeScale = 1; audio.setFrozen(false); } }, 700); }
 });
 
 /* Score strip: tap a stave → reveal; drag → scrub time */
@@ -497,12 +606,14 @@ Object.assign(score.h, {
   onTouch: () => { noteInput(); leaveAttract(); },
   onScrubStart: () => { app.timeScale = 0; app.scrubbing = true; },
   onScrub: (slot) => { app.slotF = slot; syncCursor(); },
-  onScrubEnd: () => { app.scrubbing = false; if (app.mode !== 'reveal' && !app.paused) app.timeScale = 1; },
+  onScrubEnd: () => { app.scrubbing = false; if (app.mode !== 'reveal' && !app.paused && !app.pending) app.timeScale = 1; },
   onTapRow: (id) => { if (app.mode === 'reveal' && app.reveal.id === id) return; openReveal(id); },
 });
 
 /* Panel buttons */
 el.panel.querySelector('.more').addEventListener('click', () => { noteInput(); el.panel.classList.toggle('deep'); el.panel.querySelector('.more').textContent = el.panel.classList.contains('deep') ? 'Hide the working' : 'Show me the working'; });
+el.panel.querySelector('.techbtn').addEventListener('click', () => { noteInput(); el.panel.classList.toggle('tech-open'); });
+$('#chipWhy').addEventListener('click', () => { noteInput(); leaveAttract(); openReveal('car'); });
 el.panel.querySelector('.release').addEventListener('click', () => { noteInput(); closeReveal({ replay: app.reveal.dirty }); });
 el.panel.querySelector('.close').addEventListener('click', () => { noteInput(); closeReveal({ replay: false }); });
 el.panel.addEventListener('pointerdown', (e) => { e.stopPropagation(); noteInput(); });
@@ -512,7 +623,7 @@ el.btnPause.addEventListener('click', () => {
   noteInput();
   app.paused = !app.paused;
   el.btnPause.classList.toggle('paused', app.paused);
-  if (app.mode !== 'reveal') app.timeScale = app.paused ? 0 : 1;
+  if (app.mode !== 'reveal') app.timeScale = app.paused || app.pending ? 0 : 1;
   audio.setFrozen(app.paused);
 });
 el.btnSound.addEventListener('click', () => {
@@ -611,12 +722,12 @@ function tick(now) {
 
   // touch ripple
   const ts = app.touch;
-  ts.strength += ((ts.targetStrength || 0) - ts.strength) * 0.12;
+  ts.strength += (((ts.targetStrength || 0) * (reducedMotion ? 0.4 : 1)) - ts.strength) * 0.12;
   ts.r += ((ts.targetStrength ? 7.5 : 0) - ts.r) * 0.08;
   if (app.mode === 'reveal' && app.reveal.id) { ts.world.lerp(nodes.get(app.reveal.id).world, 0.15); ts.strength += (0.6 - ts.strength) * 0.1; ts.r += (6 - ts.r) * 0.1; }
 
   // camera
-  const drift = frozen ? 0 : 1;
+  const drift = frozen || reducedMotion ? 0 : 1;
   if (app.mode === 'reveal' && app.reveal.id) {
     const w = nodes.get(app.reveal.id).world;
     const dir = new THREE.Vector3(0, 1.5, R.state.camZ).sub(w).normalize();
@@ -627,8 +738,8 @@ function tick(now) {
     camPosTarget.set(Math.sin(app.t * 0.05) * 1.6 * drift, 1.5 + Math.sin(app.t * 0.037) * 0.6 * drift, R.state.camZ + Math.sin(app.t * 0.021) * 1.2 * drift);
     camLookTarget.copy(LOOK_BASE);
   }
-  camPos.lerp(camPosTarget, 0.04);
-  camLook.lerp(camLookTarget, 0.04);
+  camPos.lerp(camPosTarget, reducedMotion ? 0.25 : 0.04);
+  camLook.lerp(camLookTarget, reducedMotion ? 0.25 : 0.04);
   R.camera.position.copy(camPos);
   R.camera.lookAt(camLook);
 
@@ -666,7 +777,8 @@ function tick(now) {
   for (const id in labelEls) {
     const L = labelEls[id]; const p = proj[id];
     let op = 0;
-    const pending = sim.requests.some((r) => r.node === id && !r.declined);
+    const pendingNode = { ev: 'car', heat: 'home', bakery: 'bakery', battery: 'battery' };
+    const pending = !!app.pending && app.pending.loads.some((l) => pendingNode[l] === id);
     if (showLabels) {
       if (app.mode === 'reveal') op = id === revealId ? 1 : 0.28;
       else if (app.holding || app.scrubbing || app.paused) op = app.holding ? clamp(1.15 - Math.hypot(p.x - ts.x, p.y - ts.y) / 520, 0.3, 1) : 0.9;
@@ -686,11 +798,12 @@ function tick(now) {
     if (now - c.born > 5600) { c.el.remove(); captionPool.splice(k, 1); continue; }
     c.el.style.left = `${p.x.toFixed(1)}px`; c.el.style.top = `${(p.y - LABEL_OFFSET[c.node] * 0.9).toFixed(1)}px`;
   }
+  $('#chipWhy').classList.toggle('hidden', app.mode === 'attract' || app.mode === 'reveal' || !!app.pending);
   if (app.mode !== 'attract') {
     const h = slotHour(app.slotF) % 24;
     el.clockTime.textContent = formatClock(h);
     const over = f.feeder > SCENARIO.feederLimitKw;
-    el.clockSub.innerHTML = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
+    el.clockSub.innerHTML = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${app.pending ? ' · <b class="pend">waiting for your answer</b>' : frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
     score.draw(app.slotF, { revealId, dimmed: false });
   }
 
@@ -708,5 +821,5 @@ function tick(now) {
 requestAnimationFrame(tick);
 
 // Expose a tiny inspection hook for testing on the station (no UI).
-window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange };
+window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending };
 window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons;
