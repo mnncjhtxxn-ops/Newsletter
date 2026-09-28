@@ -642,7 +642,7 @@ function showHint() {
    ring as its lit quarter-hours fly to their new times, and returns to the
    eye as the day starts again. It is the one moment of being *in* the flow,
    and it ends where the decision can be read. Wall-clock timed. */
-const RIDE = { fly: 3.6, land: 1.6, back: 1.4 };
+const RIDE = { fly: 8.2, land: 2.4, back: 1.8 }; // seconds; fly includes the shrink from the eye into the source strand
 const RIDE_LINK = { car: 'toCar', home: 'toHome', bakery: 'toBakery', battery: 'battery' };
 function startRide(dest) {
   const link = ribbons.energy[RIDE_LINK[dest]];
@@ -651,6 +651,9 @@ function startRide(dest) {
   const slot0 = first >= 0 ? first : 0;
   const src = app.sim.series.renewFrac[slot0] >= 0.5 ? 'windIn' : 'gridIn';
   const pts = [];
+  // from the eye, shrink towards the source, then along its strand: the hop is short so most of the ride is inside the flow
+  const srcStart = ribbons.energy[src].curve.getPointAt(0).clone(); srcStart.y += 0.35;
+  for (let i = 0; i < 12; i++) { const u = i / 12; pts.push(EYE.clone().lerp(srcStart, u * u * (3 - 2 * u)).add(new THREE.Vector3(0, Math.sin(u * Math.PI) * 1.2, 0))); }
   for (let i = 0; i <= 40; i++) { const v = ribbons.energy[src].curve.getPointAt(i / 40); v.y += 0.35; pts.push(v); }
   for (let i = 1; i <= 40; i++) { const v = link.curve.getPointAt(i / 40); v.y += 0.35; pts.push(v); }
   const path = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
@@ -658,6 +661,7 @@ function startRide(dest) {
   const bead = dayring.beadAt(dest, slot0);
   const landPos = target.clone().add(EYE.clone().sub(target).normalize().multiplyScalar(4.8)).add(new THREE.Vector3(0, 1.4, 0));
   app.ride = { t0: performance.now(), dest, src, path, target, bead, landPos, phase: 'fly', endPos: path.getPointAt(1), migrated: false, looked: false };
+  app.rideAmt = 0;
   ribbons.energy[src].burst = 1;
   link.burst = 1;
   return true;
@@ -669,10 +673,13 @@ function updateRide(now, pos, look) {
   const t = (now - r.t0) / 1000;
   const smooth = (u) => u * u * (3 - 2 * u);
   if (t < RIDE.fly) {
-    const u = smooth(clamp(t / RIDE.fly, 0, 1));
+    // ease in slowly (the shrink), cruise, ease out at the object
+    const x = clamp(t / RIDE.fly, 0, 1);
+    const u = x < 0.22 ? 0.12 * Math.pow(x / 0.22, 2) : 0.12 + 0.88 * smooth((x - 0.22) / 0.78);
     r.path.getPointAt(u, pos);
-    r.path.getPointAt(Math.min(1, u + 0.03), look);
+    r.path.getPointAt(Math.min(1, u + 0.02), look);
     if (u > 0.985) look.copy(r.target);
+    app.rideAmt = Math.min(1, t / 1.6); // the world grows around you as you become small
     return true;
   }
   if (t < RIDE.fly + RIDE.land) {
@@ -685,6 +692,7 @@ function updateRide(now, pos, look) {
     const u = smooth(clamp((t - RIDE.fly) / RIDE.land, 0, 1));
     pos.copy(r.endPos).lerp(r.landPos, u);
     look.copy(r.target).lerp(r.bead, u);
+    app.rideAmt = 1 - u; // back to full size as you land
     return true;
   }
   if (t < RIDE.fly + RIDE.land + RIDE.back) {
@@ -696,12 +704,14 @@ function updateRide(now, pos, look) {
       app.choreoUntil = performance.now() + RIDE.back * 1000 + 300;
     }
     const u = smooth(clamp((t - RIDE.fly - RIDE.land) / RIDE.back, 0, 1));
+    app.rideAmt = 0;
     pos.copy(r.landPos).lerp(EYE, u);
     const fwd = forwardOf(cam.yaw, cam.pitch).add(EYE);
     look.copy(r.bead).lerp(fwd, u);
     return true;
   }
   app.ride = null;
+  app.rideAmt = 0;
   if (app.toastPending) { app.toastPending = false; showToast(); }
   return false;
 }
@@ -746,7 +756,7 @@ function resetToAttract() {
   $('#hint').classList.add('hidden');
   cam.userYaw = 0; cam.userPitch = 0;
   app.guide = { step: 0, since: 0, lastReveal: null }; el.guide.classList.add('hidden');
-  app.ride = null; app.choreoUntil = 0; app.toastPending = false;
+  app.ride = null; app.rideAmt = 0; app.choreoUntil = 0; app.toastPending = false;
   showUI(false);
   audio.disable(); el.btnSound.classList.remove('on');
   app.idleShown = false;
@@ -1013,6 +1023,17 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   const riding = updateRide(performance.now(), camPos, camLook);
   R.camera.position.copy(camPos);
   R.camera.lookAt(camLook);
+  {
+    const amt = app.rideAmt || 0;
+    const fov = R.state.fov + 26 * amt;
+    if (Math.abs(R.camera.fov - fov) > 0.01) { R.camera.fov = fov; R.camera.updateProjectionMatrix(); }
+    for (const k2 in ribbons.energy) {
+      const m = ribbons.energy[k2].mat.uniforms;
+      if (ribbons.energy[k2].baseSize == null) ribbons.energy[k2].baseSize = m.uSize.value;
+      m.uSize.value = ribbons.energy[k2].baseSize * (1 + 1.2 * amt);
+      m.uMaxSize.value = 26 + 18 * amt; // the halo pass is 3.8× this, so keep it modest: fill cost, not taste, is the limit
+    }
+  }
 
   // scene state
   const revealId = app.reveal.id;

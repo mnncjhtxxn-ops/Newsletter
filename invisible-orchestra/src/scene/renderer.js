@@ -35,6 +35,7 @@ export function createRenderer(canvas, { profile = 'balanced' } = {}) {
     // keep the whole constellation in view on narrow screens
     const aspect = w / h;
     camera.fov = aspect < 1 ? 80 : aspect < 1.4 ? 66 : 58;
+    state.fov = camera.fov; // the resting field of view; the ride widens it temporarily
     state.camZ = 0;
     camera.updateProjectionMatrix();
   }
