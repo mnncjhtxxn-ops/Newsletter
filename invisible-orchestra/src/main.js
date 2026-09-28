@@ -478,6 +478,7 @@ function openReveal(id, { viaPull = false } = {}) {
     tech.classList.remove('hidden');
   } else tech.classList.add('hidden');
   p.classList.remove('deep', 'tech-open');
+  p.querySelector('.more').textContent = 'Show me the working';
   renderControls(id);
   p.querySelector('.release').classList.remove('dirty');
   p.querySelector('.release').textContent = 'Release';
@@ -522,7 +523,7 @@ function renderControls(id) {
       for (const o of ['auto', 'ask', 'never']) {
         const b = document.createElement('button'); b.type = 'button'; b.className = o; b.textContent = PERM_LABELS[o];
         if (o === cur) b.classList.add('on');
-        b.addEventListener('click', () => { setIn(app.input, d.key, o); delete app.input.approvals[d.key[1]]; c.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); markDirty(); });
+        b.addEventListener('click', () => { setIn(app.input, d.key, o); c.querySelectorAll('button').forEach((x) => x.classList.remove('on')); b.classList.add('on'); markDirty(); });
         c.appendChild(b);
       }
       wrap.appendChild(c);

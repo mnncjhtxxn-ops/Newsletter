@@ -38,6 +38,8 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | V09 | Portrait hardware reach | PARTIAL | portrait layout puts cards, controls and the score in the lower band; physical reach on a mounted 55-inch screen **BLOCKED** (no hardware) |
 | V10 | Rapid interaction cannot strand the app | PASS | 60 automated cycles with cancelled interactions, resets mid-transition, no errors |
 | V11 | Window resize / orientation change (e.g. browser going fullscreen on the kiosk) | PASS | landscape → portrait → landscape in headless Chromium: canvas CSS and buffer sizes follow the window, no errors. A bug found in this pass (inline canvas sizes pinned the old size) is fixed |
+| V13 | Permission chips ('ask' / 'never') respond to a real touch tap, both orientations | PASS | found broken on the big screen: the click handler referenced a removed field and threw before registering the change. Fixed; verified with synthetic touch taps in headless Chromium, portrait and landscape |
+| V14 | Portrait sheet shows the controls without scrolling; Release stays visible | PASS | controls now come before the explanation in portrait; footer is sticky. 'Show me the working' label resets on every open |
 | V12 | Environment: mirror floor, pools, pillars, landscape, bokeh | PASS as built / **awaiting your visual sign-off** | screenshots in the session; reflection off in Economy; cost not measured on hardware (see PERFORMANCE.md) |
 
 ## Operational tests (spec §12)
