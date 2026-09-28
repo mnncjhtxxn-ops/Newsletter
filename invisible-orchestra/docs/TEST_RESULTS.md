@@ -43,6 +43,12 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | V15 | Guided first minute: touch the car → change and replay → now try your home | PASS | automated flow in both orientations: each prompt anchored to its object, dismissed only by the action, camera turned to face the anchor, gesture hint shown once the guide completes |
 | V16 | The ride | PASS as built / **awaiting your visual sign-off** | slowed-down frame captures along the path: flight from the turbine through the cable into the car, landing over the ring while beads fly, return to the eye; touch ignored during the ride; reduced motion skips it |
 | V17 | Recognisability at ten metres | PASS as built / **awaiting your visual sign-off** | cottage, storefront with BAKERY sign, wall battery and car all identifiable in headless renders from the viewer's eye |
+| V18 | Strings: waves on the strands follow power and tariff; shudder near the cable limit | PASS as built / **awaiting your visual sign-off** | headless renders show the wave; parameters in `src/scene/ribbons.js` |
+| V19 | Generative orchestra plays from the simulation (beats, modes, sections) | PASS (mechanics) / **unheard by me** | Web Audio context runs in headless Chromium, beats fire per quarter-hour, section levels follow the state; musical judgement needs ears on the kiosk |
+| V20 | Baton: a drag on a ring arc sweeps time to the finger | PASS | synthetic touch drag moved the day from 02:00 to 03:29 following the finger; release resumes play |
+| V21 | Vehicle to grid keeps the departure promise and the reserve | PASS | unit test: export only at ≥ 24p, reserve 10 % kept, 80 % at departure, home's day cheaper, street peak not raised; UI replay verified |
+| V22 | Street lending is bounded and only for a coordinated street | PASS | unit tests: pool covers a locked-car overload, never exceeds pool kW/kWh, no pool for the uncoordinated baseline |
+| V23 | Battery trading respects bounds and other promises | PASS | unit test: sells only at or above the sell floor, SoC within bounds, car and comfort promises untouched, earns more than keep mode |
 | V12 | Environment: mirror floor, pools, pillars, landscape, bokeh | PASS as built / **awaiting your visual sign-off** | screenshots in the session; reflection off in Economy; cost not measured on hardware (see PERFORMANCE.md) |
 
 ## Operational tests (spec §12)

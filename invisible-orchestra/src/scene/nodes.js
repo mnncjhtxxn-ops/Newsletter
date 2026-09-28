@@ -123,7 +123,7 @@ export class Nodes {
     this.byId.wind.extras.blades.rotation.z -= (0.2 + f.windFrac * 1.6) * f.dt;
     setAct('sun', Math.min(1, f.solarFrac * 1.2));
     setAct('grid', 0.2 + 0.8 * f.importFrac);
-    setAct('car', f.evKw > 0 ? 1 : 0.25);
+    setAct('car', Math.abs(f.evKw) > 0 ? 1 : 0.25);
     setFill('car', f.evSoc / 100);
     setAct('home', f.heatKw > 0 ? 1 : 0.3);
     setFill('home', f.tempFrac);

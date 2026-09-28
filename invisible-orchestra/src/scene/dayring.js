@@ -37,7 +37,7 @@ export function ringPoint(ring, slot, out = new THREE.Vector3()) {
 
 export function seriesFor(sim, id) {
   const s = sim.series;
-  if (id === 'car') return Array.from(s.ev);
+  if (id === 'car') return Array.from(s.ev, (v) => Math.abs(v));
   if (id === 'home') return Array.from(s.heat);
   if (id === 'bakery') return Array.from(s.ovens, (v, i) => v + s.cold[i]);
   if (id === 'battery') return Array.from(s.battery, (v) => Math.abs(v));

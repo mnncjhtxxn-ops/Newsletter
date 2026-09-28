@@ -15,8 +15,9 @@
 - Projections are additive translucent double-sided meshes; on weak GPUs they are the most expensive thing on screen. Only one is ever visible at a time.
 - The mirror floor is a second full render of the scene per frame (Balanced 1024², Detail 1536²). It is the most expensive element on screen after the projection and is untested on exhibition hardware; Economy turns it off. The decorative landscape, pillars and bokeh push the visible point count above the v1.1 800-particle cap (see `docs/PERFORMANCE.md`).
 - The landscape is a hint (dim hills and spires), not a place; there is no horizon geometry, sky or terrain, and the ceiling pool is a flat shader disc.
+- The generative score is a synthesised ensemble, not an orchestral recording: it is coherent and follows the data, but it will not be mistaken for a symphony orchestra. An authored arrangement over the same engine is the natural next step.
+- Vehicle to grid, street lending and battery trading are illustrative: the export price (tariff less 2p), the 10 % reserve, the 7.5 kWh daily cap, the six-home pool and the 25p/kWh flexibility fee are scenario choices, not any real tariff or network service. Round-trip losses on the home battery are still not modelled.
 - Only one scenario exists (Larkfield Street). Presets for a business day or a fleet are not built.
-- Sound is a small synthesised layer with no authored composition.
 
 **Operations**
 - No exhibition hardware has been used. Frame time, touch ergonomics and the twelve-hour soak are unverified.

@@ -126,10 +126,41 @@ function scheduleEv(mode, ctx) {
     plan.trace.reasonCodes = ['NO_COORDINATION'];
   }
 
-  const power = plan.powerKw;
+  // Vehicle to grid: sell at the dearest evening quarter-hours, then buy it back on the wind.
+  // Only when the departure promise (and any spending limit) still holds afterwards; the
+  // amount shrinks until it does, and can shrink to nothing.
+  const exportPower = new Float64Array(SLOTS);
+  let exportKwh = 0, exportEarnPence = 0, exportSlots = [], exportTried = false;
+  if (mode === 'auto' && pr.exportAllowed) {
+    exportTried = true;
+    const cands = [...Array(SLOTS).keys()].filter((i) => available[i] && price[i] >= ev.exportPriceFloorPence).sort((a, b) => price[b] - price[a] || a - b);
+    const maxE = Math.min(ev.exportCapKwh, Math.max(0, (ev.startPct - ev.exportReservePct) / 100 * ev.capacityKwh) * eta);
+    for (let E = maxE; E > 0.05; E -= 2.5) {
+      const ep = new Float64Array(SLOTS);
+      let rem = E;
+      const used = [];
+      for (const i of cands) { if (rem <= 1e-9) break; const e = Math.min(ev.exportKw * DT, rem); ep[i] = -e / DT; rem -= e; used.push(i); }
+      const sold = E - rem;
+      if (sold <= 0.05) break;
+      const availNow = available.map((a, i) => a && ep[i] === 0);
+      const trial = planLoad({
+        pricePencePerKwh: Array.from(price), headroomKw: Array.from(committed, (c) => limit - c), available: availNow, dtHours: DT,
+        maxPowerKw: P, energyNeededKwh: energyNeeded + sold / eta, efficiency: eta, capPence: pr.priceCapPence, priority: 'target',
+      });
+      if (trial.status === PlanStatus.FEASIBLE) {
+        exportPower.set(ep); exportKwh = sold; exportSlots = used; plan = trial;
+        for (const i of used) exportEarnPence += -ep[i] * DT * (price[i] - ev.exportDiscountPence);
+        plan.trace.reasonCodes.push('VEHICLE_TO_GRID_EXPORT');
+        plan.trace.observations.push({ key: 'exportKwh', value: Math.round(sold * 100) / 100, unit: 'kWh' });
+        break;
+      }
+    }
+  }
+
+  const power = Float64Array.from(plan.powerKw, (p, i) => p + exportPower[i]);
   const soc = new Float64Array(SLOTS + 1);
   soc[0] = ev.startPct;
-  for (let i = 0; i < SLOTS; i++) soc[i + 1] = soc[i] + (power[i] * DT * eta / ev.capacityKwh) * 100;
+  for (let i = 0; i < SLOTS; i++) soc[i + 1] = soc[i] + ((power[i] > 0 ? power[i] * DT * eta : power[i] * DT / eta) / ev.capacityKwh) * 100;
   const reachedPct = soc[depart];
   const delivered = plan.acKwh;
 
@@ -145,7 +176,11 @@ function scheduleEv(mode, ctx) {
       windKwh += power[i] * DT * clamp((wind[i] + solar[i]) / Math.max(total, 1e-6), 0, 1);
     }
   }
+  // (export slots carry no wind share: the car is a source there, not a load)
 
+  const chargeCost = plan.costPence;
+  plan.costPence = chargeCost - exportEarnPence; // net: what the car cost after what it earned
+  plan.minCostPence = plan.minCostPence - exportEarnPence;
   const capacityShort = plan.boundReason === 'CHARGER_POWER_AND_TIME_LIMIT' || plan.boundReason === 'FEEDER_HEADROOM_BINDING';
   const priceConflict = plan.trace.reasonCodes.includes('BUDGET_TARGET_CONFLICT')
     ? { cap: pr.priceCapPence, costIfDeparture: plan.minCostPence, priority: ctx.resolutions.evPriority || 'departure', maxPctWithinBudget: ev.startPct + (plan.maxAddedWithinBudgetKwh / ev.capacityKwh) * 100 }
@@ -157,6 +192,7 @@ function scheduleEv(mode, ctx) {
     cost: plan.costPence, minCost: plan.minCostPence, priceConflict, windShare: delivered > 0 ? windKwh / delivered : 0,
     latestFullClock: fullSlot > 0 ? slotClock(fullSlot) : null, status: plan.status, boundReason: plan.boundReason, trace: plan.trace,
     need: Math.ceil(plan.acNeededKwh / (P * DT) - 1e-9), windowSlots: depart - from,
+    exportKwh, exportEarnPence, exportSlots, exportTried, chargeCost, minSocPct: Math.min(...soc.slice(0, depart + 1)),
   };
 }
 
@@ -258,8 +294,11 @@ function scheduleHeat(mode, ctx) {
 /* ------------------------------------------------------------------ */
 
 function scheduleBattery(mode, ctx) {
-  const { price, committed, limit } = ctx;
+  const { price, committed, limit, homeKw } = ctx;
   const b = SCENARIO.battery;
+  const pb = ctx.promises.battery || { mode: 'keep', share: true };
+  const trade = pb.mode === 'trade';
+  const share = pb.share !== false;
   const power = new Float64Array(SLOTS); // +charge / -discharge (kW)
   const soc = new Float64Array(SLOTS + 1);
   const reasons = new Array(SLOTS).fill('');
@@ -268,21 +307,39 @@ function scheduleBattery(mode, ctx) {
   let peakKwh = 0;
   let cableKwh = 0;
   let chargeKwh = 0;
+  let sellKwh = 0;
+  let solarKwh = 0;
+  let sellEarnPence = 0;
   if (mode === 'auto') {
     const cheap = quantile(price, 0.3);
     const dear = quantile(price, 0.7);
+    var sellFloor = Math.min(dear, b.tradeDearPence);
     for (let i = 0; i < SLOTS; i++) {
       const e = soc[i];
       const overload = committed[i] - limit;
       let p = 0;
-      if (overload > 0 && e > minE) {
+      if (share && overload > 0 && e > minE) {
+        // the network asked: lend to the street
         p = -Math.min(b.powerKw, overload + 0.5, (e - minE) / DT);
         reasons[i] = 'cable';
         cableKwh += -p * DT;
-      } else if (price[i] >= dear && e > minE && committed[i] > 0) {
+      } else if (trade && price[i] >= sellFloor && e > minE) {
+        // trade: sell into the dear hours, whatever the house is doing; what the house uses first is not exported
+        p = -Math.min(b.powerKw, (e - minE) / DT);
+        reasons[i] = 'sell';
+        const houseKw = Math.max(0, Math.min(-p, homeKw ? homeKw[i] : 0));
+        const exportKw = -p - houseKw;
+        sellKwh += exportKw * DT;
+        sellEarnPence += exportKw * DT * (price[i] - SCENARIO.ev.exportDiscountPence) + houseKw * DT * price[i];
+      } else if (!trade && price[i] >= dear && e > minE && committed[i] > 0) {
         p = -Math.min(b.powerKw, committed[i], (e - minE) / DT);
         reasons[i] = 'peak';
         peakKwh += -p * DT;
+      } else if (trade && committed[i] < -0.5 && e < b.capacityKwh) {
+        // the street's rooftops are making more than the street is using: store the surplus
+        p = Math.min(b.powerKw, (b.capacityKwh - e) / DT, -committed[i]);
+        reasons[i] = 'solar';
+        solarKwh += p * DT;
       } else if (price[i] <= cheap && e < b.capacityKwh && committed[i] + b.powerKw <= limit) {
         p = Math.min(b.powerKw, (b.capacityKwh - e) / DT);
         reasons[i] = 'store';
@@ -294,8 +351,8 @@ function scheduleBattery(mode, ctx) {
   } else {
     for (let i = 0; i < SLOTS; i++) soc[i + 1] = soc[i];
   }
-  const cost = sum(Array.from(power, (p, i) => p * DT * price[i])); // negative = earned
-  return { power, soc, reasons, cost, peakKwh, cableKwh, chargeKwh };
+  const cost = sum(Array.from(power, (p, i) => p * DT * price[i])) + sellKwh * SCENARIO.ev.exportDiscountPence; // negative = earned
+  return { power, soc, reasons, cost, peakKwh, cableKwh, chargeKwh, sellKwh, solarKwh, sellEarnPence, trade, share, sellFloorPence: typeof sellFloor === 'number' ? sellFloor : b.tradeDearPence };
 }
 
 /* ------------------------------------------------------------------ */
@@ -307,8 +364,11 @@ export function simulate(input = {}) {
     ev: { ...DEFAULT_PROMISES.ev, ...(input.promises?.ev || {}) },
     home: { ...DEFAULT_PROMISES.home, ...(input.promises?.home || {}) },
     bakery: { ...DEFAULT_PROMISES.bakery, ...(input.promises?.bakery || {}) },
+    battery: { ...DEFAULT_PROMISES.battery, ...(input.promises?.battery || {}) },
   };
   const permissions = { ...DEFAULT_PERMISSIONS, ...(input.permissions || {}) };
+  // The street's shared batteries answer the network only where something is being coordinated at all.
+  const coordinated = input.streetPool !== false && Object.values(permissions).some((p) => p !== 'never');
   const approvals = { ...(input.approvals || {}) };
   const resolutions = { ...(input.resolutions || {}) };
   const withBaseline = input.withBaseline !== false;
@@ -345,10 +405,28 @@ export function simulate(input = {}) {
 
   // 4. The battery.
   const batteryMode = modeFor(permissions.battery);
-  const battery = scheduleBattery(batteryMode, { ...ctxBase, committed });
+  const homeKw = Float64Array.from(homeBase, (v, i) => v + Math.max(0, ev.power[i]) + heat.power[i]);
+  const battery = scheduleBattery(batteryMode, { ...ctxBase, committed, homeKw });
   for (let i = 0; i < SLOTS; i++) committed[i] += battery.power[i];
 
-  // 5. The cable.
+  // 5. The street lends. When the cable would be over its limit, the network asks the
+  //    street and the neighbours' shared batteries cover what they can, for as long as
+  //    their pool lasts. Bounded, and only where the street is being coordinated at all.
+  const lend = new Float64Array(SLOTS);
+  let poolLeft = SCENARIO.street.poolKwh;
+  let lentKwh = 0;
+  if (coordinated) {
+    for (let i = 0; i < SLOTS; i++) {
+      const over = committed[i] - limit;
+      if (over > 1e-6 && poolLeft > 1e-9) {
+        const kw = Math.min(SCENARIO.street.poolKw, over, poolLeft / DT);
+        lend[i] = kw; poolLeft -= kw * DT; lentKwh += kw * DT; committed[i] -= kw;
+      }
+    }
+  }
+  const poolExhausted = coordinated && poolLeft < 1e-6;
+
+  // 6. The cable.
   const feeder = committed; // net flow through the substation into the street
   const overload = [];
   let peak = -Infinity;
@@ -399,7 +477,8 @@ export function simulate(input = {}) {
     conflicts.push({
       id: 'cable', node: 'substation', severity: locked.length ? 'choice' : 'hard',
       title: `The street's cable is over its limit for ${overload.length * 15} minutes.`,
-      text: `At ${formatClock(slotHour(worst))} the street asks for ${feeder[worst].toFixed(0)} kW; the cable can carry ${limit}. ` +
+      text: `At ${formatClock(slotHour(worst))} the street asks for ${(feeder[worst] + lend[worst]).toFixed(0)} kW; the cable can carry ${limit}. ` +
+        (lentKwh > 0 ? `The street's shared batteries lent ${lentKwh.toFixed(0)} kWh${poolExhausted ? ', everything they had' : ''}. ` : '') +
         (locked.length
           ? `I could spread this out, but you have told me not to move ${locked.map((l) => l.name).join(', ')}. What may I move?`
           : `Even moving everything I am allowed to move, the ovens and the morning cannot both fit. In 2037 the network would have to cap the street.`),
@@ -436,11 +515,20 @@ export function simulate(input = {}) {
   for (let i = 0; i < SLOTS; i++) {
     const w = battery.reasons[i];
     if (w !== lastB && w) {
-      const words = { store: 'storing cheap wind', peak: 'covering the peak from storage', cable: "holding the street inside its cable limit" };
+      const words = { store: 'storing cheap wind', peak: 'covering the peak from storage', cable: 'lending to the street: the network asked', sell: 'selling stored energy into the dear evening', solar: "storing the street's spare sunshine" };
       decisions.push({ slot: i, node: 'battery', kind: 'schedule', text: `Battery: ${words[w]} (${Math.round(battery.soc[i] / SCENARIO.battery.capacityKwh * 100)}%).` });
     }
     lastB = w;
   }
+  if (ev.exportSlots.length) {
+    decisions.push({ slot: Math.max(0, ev.exportSlots[0] - 1), node: 'car', kind: 'schedule', text: `Car: selling ${SCENARIO.ev.exportKw} kW to the street at the evening peak (${describeRuns(runs(ev.power.map((p) => Math.max(0, -p))))}), ${money(ev.exportEarnPence)} earned; it buys that back on the wind later.` });
+  }
+  const lendRuns = runs(lend);
+  for (const r of lendRuns) {
+    const kw = Math.max(...Array.from(lend).slice(r.from, r.to));
+    decisions.push({ slot: r.from, node: 'street', kind: 'schedule', text: `The street: the network asked, and ${SCENARIO.street.poolHomes} neighbours' batteries lent up to ${kw.toFixed(0)} kW for ${(r.to - r.from) * 15} minutes so the cable held.` });
+  }
+  if (poolExhausted) decisions.push({ slot: lendRuns.length ? lendRuns[lendRuns.length - 1].to : 0, node: 'street', kind: 'outcome', text: `The street's shared batteries are empty: ${SCENARIO.street.poolKwh} kWh lent.` });
   decisions.sort((a, b) => a.slot - b.slot);
 
   /* ---------------- metrics ---------------- */
@@ -455,14 +543,25 @@ export function simulate(input = {}) {
     homeLoad[i] = homeBase[i] + ev.power[i] + heat.power[i] + battery.power[i];
     homeCost += homeLoad[i] * DT * S.price[i];
     importKw[i] = Math.max(0, feeder[i]);
-    const total = load[i] + ev.power[i] + cold.power[i] + heat.power[i] + Math.max(0, battery.power[i]);
+    const total = load[i] + Math.max(0, ev.power[i]) + cold.power[i] + heat.power[i] + Math.max(0, battery.power[i]);
     renewFrac[i] = clamp((S.wind[i] + S.solar[i]) / Math.max(total, 1e-6), 0, 1);
     consumption += total * DT;
     renewable += total * DT * renewFrac[i];
     carbonG += importKw[i] * DT * S.carbon[i];
   }
+  // export is paid the tariff less a margin; lending to the street is paid a flexibility fee
+  const lendEarnedPence = battery.share ? battery.cableKwh * SCENARIO.street.lendPayPencePerKwh : 0;
+  homeCost += (ev.exportKwh + battery.sellKwh) * SCENARIO.ev.exportDiscountPence - lendEarnedPence;
   const metrics = {
     homeCostPence: homeCost,
+    evExportKwh: ev.exportKwh,
+    evExportEarnedPence: ev.exportEarnPence,
+    batterySoldKwh: battery.sellKwh,
+    batterySolarKwh: battery.solarKwh,
+    lentKwh,
+    lentMinutes: runs(lend).reduce((a, r) => a + (r.to - r.from) * 15, 0),
+    lendEarnedPence,
+    poolExhausted,
     evCostPence: ev.cost,
     heatCostPence: heat.cost,
     batteryCostPence: battery.cost,
@@ -485,7 +584,7 @@ export function simulate(input = {}) {
     series: {
       wind: S.wind, solar: S.solar, price: S.price, carbon: S.carbon, outdoor: S.outdoor, street: S.street,
       ovens: ovens.power, cold: cold.power, ev: ev.power, evSoc: ev.soc, heat: heat.power, temp: heat.temp,
-      battery: battery.power, batterySoc: battery.soc, feeder, importKw, renewFrac, homeBase,
+      battery: battery.power, batterySoc: battery.soc, feeder, importKw, renewFrac, homeBase, lend,
     },
     parts: { ev, cold, heat, battery, ovens },
     modes: { ev: evMode, bakery: bakeryMode, heat: heatMode, battery: batteryMode },
@@ -493,7 +592,7 @@ export function simulate(input = {}) {
     schedules: { ev: ev.power, bakery: cold.power, heat: heat.power, battery: battery.power },
   };
   if (withBaseline) {
-    const base = simulate({ promises, permissions: { ev: 'never', heat: 'never', battery: 'never', bakery: 'never' }, withBaseline: false });
+    const base = simulate({ promises, permissions: { ev: 'never', heat: 'never', battery: 'never', bakery: 'never' }, withBaseline: false, streetPool: false });
     result.baseline = base.metrics;
     result.baselineSeries = base.series;
   }
@@ -530,11 +629,12 @@ function explainAll(r) {
     title: 'Your car',
     promise: `My car must be ready when I leave at ${formatClock(pr.ev.departureClock)}.`,
     short: {
-      asked: `Be at ${pr.ev.targetPct}% by ${formatClock(pr.ev.departureClock)}${pr.ev.priceCapPence != null ? `, for no more than ${money(pr.ev.priceCapPence)}` : ''}.`,
-      allowed: permWords[pm.ev]('charging') + '.',
-      happened: modes.ev === 'auto'
-        ? `Charged ${describeRuns(evRuns)}; ${Math.round(ev.reachedPct)}% at departure for ${money(ev.cost)}, ${Math.round(ev.windShare * 100)}% of it wind.`
-        : `Charged as soon as it was plugged in, ${describeRuns(evRuns)}; ${Math.round(ev.reachedPct)}% at departure for ${money(ev.cost)}, ${Math.round(ev.windShare * 100)}% of it wind.`,
+      asked: `Be at ${pr.ev.targetPct}% by ${formatClock(pr.ev.departureClock)}${pr.ev.priceCapPence != null ? `, for no more than ${money(pr.ev.priceCapPence)}` : ''}${pr.ev.exportAllowed ? `; sell at the evening peak, keeping ${SCENARIO.ev.exportReservePct}%` : ''}.`,
+      allowed: permWords[pm.ev]('charging') + (pr.ev.exportAllowed ? ' Sell to the street when it pays.' : '.'),
+      happened: (modes.ev === 'auto'
+        ? `Charged ${describeRuns(runs(ev.power.map((p) => Math.max(0, p))))}; ${Math.round(ev.reachedPct)}% at departure for ${money(ev.chargeCost)}, ${Math.round(ev.windShare * 100)}% of it wind.`
+        : `Charged as soon as it was plugged in, ${describeRuns(evRuns)}; ${Math.round(ev.reachedPct)}% at departure for ${money(ev.cost)}, ${Math.round(ev.windShare * 100)}% of it wind.`)
+        + (ev.exportKwh > 0 ? ` Sold ${ev.exportKwh.toFixed(1)} kWh at the evening peak for ${money(ev.exportEarnPence)}: net ${money(ev.cost)}.` : ev.exportTried ? ' Selling was allowed but would have broken the departure promise, so it did not happen.' : ''),
     },
     knew: [
       `Departure ${formatClock(pr.ev.departureClock)}; ${pr.ev.targetPct}% wanted, ${SCENARIO.ev.startPct}% on arrival: ${ev.energyNeeded.toFixed(0)} kWh into the battery, ${ev.acNeeded.toFixed(0)} kWh from the socket at ${Math.round(SCENARIO.ev.chargingEfficiency * 100)}% efficiency, ${(ev.acNeeded / SCENARIO.ev.chargerKw).toFixed(1)} h at ${SCENARIO.ev.chargerKw} kW.`,
@@ -555,6 +655,7 @@ function explainAll(r) {
       ev.feasible
         ? `Protected the target: ${Math.round(ev.reachedPct)}% at ${formatClock(pr.ev.departureClock)}.`
         : `Could not reach the target: at most ${Math.round(ev.maxPct)}% by ${formatClock(pr.ev.departureClock)} — raised it with you instead of guessing.`,
+      ...(ev.exportKwh > 0 ? [`Sold ${ev.exportKwh.toFixed(1)} kWh to the street at the evening peak for ${money(ev.exportEarnPence)}, never below ${Math.round(ev.minSocPct)}%, and bought it back on the wind.`] : []),
     ],
     technical: {
       status: ev.status, reasonCodes: ev.trace.reasonCodes, bindingConstraints: ev.trace.bindingConstraints, observations: ev.trace.observations,
@@ -563,6 +664,7 @@ function explainAll(r) {
         'Cost = the car\'s AC energy × the scenario tariff. Excludes standing charges, the rest of the home, export and any network payments.',
         'Cheapest-slot-first with per-slot caps (charger, cable headroom). For one divisible load this is optimal, so the minimum cost and the capacity/budget bounds are proofs.',
         'Aggregate real power only: no voltage, frequency, phases or losses in the cable are modelled.',
+        `Vehicle to grid: bidirectional ${SCENARIO.ev.exportKw} kW; sells only in quarter-hours priced ≥ ${SCENARIO.ev.exportPriceFloorPence}p, never below ${SCENARIO.ev.exportReservePct}% or more than ${SCENARIO.ev.exportCapKwh} kWh a day; paid the tariff less ${SCENARIO.ev.exportDiscountPence}p; the amount shrinks until the departure promise still holds.`,
       ],
     },
   };
@@ -641,12 +743,14 @@ function explainAll(r) {
   const bRuns = runs(bat.power.map((p) => Math.abs(p)));
   out.battery = {
     title: 'The home battery',
-    promise: 'Store what is cheap; spend it when it matters.',
+    promise: bat.trade ? 'Trade with the grid: buy cheap, sell dear, store the sun.' : 'Store what is cheap; spend it when it matters.',
     short: {
-      asked: 'Nothing directly — the battery serves the other promises.',
+      asked: (bat.trade ? 'Trade on my behalf' : 'Keep the house running') + (bat.share ? ', and lend to the street when the network asks.' : '; never lend to the street.'),
       allowed: permWords[pm.battery]('the battery') + '.',
       happened: modes.battery === 'auto'
-        ? `Stored ${bat.chargeKwh.toFixed(1)} kWh of cheap wind; released ${bat.peakKwh.toFixed(1)} kWh at the peaks${bat.cableKwh > 0 ? ` and ${bat.cableKwh.toFixed(1)} kWh to protect the cable` : ''}. Worth ${money(-bat.cost)}.`
+        ? (bat.trade
+          ? `Stored ${bat.chargeKwh.toFixed(1)} kWh of cheap wind and ${bat.solarKwh.toFixed(1)} kWh of the street's spare sun; sold ${bat.sellKwh.toFixed(1)} kWh into the dear evening${bat.cableKwh > 0 ? `; lent ${bat.cableKwh.toFixed(1)} kWh to the street` : ''}. Worth ${money(-bat.cost)}.`
+          : `Stored ${bat.chargeKwh.toFixed(1)} kWh of cheap wind; released ${bat.peakKwh.toFixed(1)} kWh at the peaks${bat.cableKwh > 0 ? ` and lent ${bat.cableKwh.toFixed(1)} kWh to the street` : ''}. Worth ${money(-bat.cost)}.`)
         : 'Sat idle at 50%: nobody was allowed to use it.',
     },
     knew: [
@@ -660,13 +764,19 @@ function explainAll(r) {
     decided: [
       modes.battery === 'auto' ? `Active ${describeRuns(bRuns)}.` : 'Did nothing.',
       modes.battery === 'auto'
-        ? `Charged in the cheapest third of the day, discharged in the dearest third${bat.cableKwh > 0 ? ' and whenever the cable was over its limit' : ''}.`
+        ? (bat.trade
+          ? `Sold whenever the tariff was ${bat.sellFloorPence.toFixed(0)}p or more, stored the street's sun surplus and the cheapest third of the night${bat.cableKwh > 0 ? ', and lent when the network asked' : ''}.`
+          : `Charged in the cheapest third of the day, discharged in the dearest third${bat.cableKwh > 0 ? ' and lent to the street whenever the cable was over its limit' : ''}.`)
         : 'No cheap energy was stored, no peak was shaved.',
+      ...(bat.cableKwh > 0 && bat.share ? [`Paid ${money(bat.cableKwh * SCENARIO.street.lendPayPencePerKwh)} for lending ${bat.cableKwh.toFixed(1)} kWh to the street.`] : []),
     ],
     technical: {
       status: PlanStatus.FEASIBLE, reasonCodes: [...new Set(bat.reasons.filter(Boolean).map((w) => ({ store: 'STORE_ON_CHEAP_SLOTS', peak: 'DISCHARGE_ON_DEAR_SLOTS', cable: 'DISCHARGE_FOR_FEEDER_HEADROOM' }[w])))],
       bindingConstraints: [`${SCENARIO.battery.minPct}% reserve`, `${SCENARIO.battery.powerKw} kW`], observations: [{ key: 'chargedKwh', value: +bat.chargeKwh.toFixed(2), unit: 'kWh' }, { key: 'peakKwh', value: +bat.peakKwh.toFixed(2), unit: 'kWh' }, { key: 'cableKwh', value: +bat.cableKwh.toFixed(2), unit: 'kWh' }],
-      assumptions: ['Round-trip losses are not modelled in this version; 100 % efficiency is an acknowledged simplification. Export earns the same price as import in the scenario.'],
+      assumptions: [
+        'Round-trip losses are not modelled in this version; 100 % efficiency is an acknowledged simplification.',
+        `Trade mode sells in the dearest third of the day, at ≥ ${bat.sellFloorPence.toFixed(0)}p (exports paid the tariff less ${SCENARIO.ev.exportDiscountPence}p) and stores the street's midday sun surplus; keep mode only covers the house. Lending to the street pays ${SCENARIO.street.lendPayPencePerKwh}p per kWh, an illustrative flexibility fee.`,
+      ],
     },
   };
 
@@ -704,15 +814,20 @@ function explainAll(r) {
 
   out.street = {
     title: 'The other homes',
-    promise: 'Life carries on.',
+    promise: 'Life carries on — and when the network asks, the street answers.',
     short: {
       asked: 'Dinner, showers, screens, the school run: the ordinary shape of a day.',
-      allowed: 'Not part of this story: their demand is taken as given.',
-      happened: `Evening peak ${Math.max(...series.street).toFixed(0)} kW; quietest ${Math.min(...series.street).toFixed(0)} kW in the small hours.`,
+      allowed: `${SCENARIO.street.poolHomes} neighbours' batteries (${SCENARIO.street.poolKw} kW, ${SCENARIO.street.poolKwh} kWh between them) may lend to the street when the cable is tight.`,
+      happened: metrics.lentKwh > 0
+        ? `Lent ${metrics.lentKwh.toFixed(1)} kWh for ${metrics.lentMinutes} minutes when the cable was tight${metrics.poolExhausted ? ' — all they had' : ''}. Evening peak ${Math.max(...series.street).toFixed(0)} kW.`
+        : `Never needed to lend. Evening peak ${Math.max(...series.street).toFixed(0)} kW; quietest ${Math.min(...series.street).toFixed(0)} kW in the small hours.`,
     },
-    knew: ['A typical demand curve for 38 homes, from the scenario.'],
-    allowed: ['Nothing to move here — this is the backdrop the orchestra works around.'],
-    decided: ['Their peaks decided where the cable was tight, and therefore where the car and the cold store could not go.'],
+    knew: ['A typical demand curve for 38 homes, from the scenario.', `A shared pool: ${SCENARIO.street.poolHomes} homes with batteries, ${SCENARIO.street.poolKw} kW and ${SCENARIO.street.poolKwh} kWh in all.`],
+    allowed: ['Their demand is taken as given.', 'The network may ask the pool to lend when the cable would be over its limit; it lends until the pool is empty.'],
+    decided: [
+      'Their peaks decided where the cable was tight, and therefore where the car and the cold store could not go.',
+      metrics.lentKwh > 0 ? `The network asked ${runs(series.lend).length} time${runs(series.lend).length === 1 ? '' : 's'}; the street lent ${metrics.lentKwh.toFixed(1)} kWh.` : 'The network never had to ask.',
+    ],
   };
 
   out.sun = {
@@ -772,6 +887,24 @@ export function lessons(r, prev, opts = {}) {
     out.push({
       key: 'declined', icon: 'hand',
       text: `You declined a change. The agreed plan and the agreed promise stayed in force; the system did not quietly do it anyway. That boundary is the point, not a failure.`,
+    });
+  }
+  if (ev.exportKwh > 0) {
+    out.push({
+      key: 'v2g', icon: 'car',
+      text: `Your car sold ${ev.exportKwh.toFixed(1)} kWh to the street at the evening peak for ${money(ev.exportEarnPence)}, bought it back on cheap wind, and still left at ${Math.round(ev.reachedPct)}%. Parked cars are the street's biggest battery.`,
+    });
+  }
+  if (m.lentKwh > 0) {
+    out.push({
+      key: 'street-lent', icon: 'street',
+      text: `When the cable was tight, the network asked the street and ${SCENARIO.street.poolHomes} neighbours' batteries lent ${m.lentKwh.toFixed(1)} kWh for ${m.lentMinutes} minutes${m.lendEarnedPence > 0 ? `; yours earned ${money(m.lendEarnedPence)}` : ''}. Flexibility bought from the street is cheaper than a bigger cable.`,
+    });
+  }
+  if (r.parts.battery.trade && r.parts.battery.sellKwh > 0) {
+    out.push({
+      key: 'trade', icon: 'battery',
+      text: `The battery traded: ${r.parts.battery.chargeKwh.toFixed(1)} kWh of cheap wind and ${r.parts.battery.solarKwh.toFixed(1)} kWh of spare sun in, ${r.parts.battery.sellKwh.toFixed(1)} kWh sold into the dear evening, worth ${money(-r.parts.battery.cost)} over the day.`,
     });
   }
   if (r.parts.heat.preheatSlots > 0 && r.modes.heat === 'auto') {

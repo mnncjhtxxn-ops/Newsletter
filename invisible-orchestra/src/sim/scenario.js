@@ -97,12 +97,33 @@ export const SCENARIO = {
     chargingEfficiency: 0.9, // share of AC energy that ends up in the battery
     arriveSlot: 0, // plugged in at 18:00
     startPct: 20,
+    // Vehicle to grid (2037): a bidirectional charger. The car may sell into the
+    // street at the evening peak, keeping a reserve the driver sets and never
+    // more than a daily cap (battery wear), and must still meet its departure
+    // promise afterwards. Export is paid the tariff less a small margin.
+    exportKw: 7,
+    exportReservePct: 10,
+    exportCapKwh: 7.5,
+    exportPriceFloorPence: 24,
+    exportDiscountPence: 2,
   },
   battery: {
     capacityKwh: 13.5,
     powerKw: 5,
     startPct: 50,
     minPct: 10,
+    // 'trade' mode: sell stored energy at the dear evening and store the street's
+    // midday sun surplus; 'keep' mode serves only the house.
+    tradeDearPence: 24,
+  },
+  // The street's shared batteries (2037): when the cable is tight the network
+  // asks the street, and neighbours' batteries lend for a while. Bounded: a
+  // pool of power and energy, and a flexibility payment for those who join.
+  street: {
+    poolHomes: 6,
+    poolKw: 18,
+    poolKwh: 30,
+    lendPayPencePerKwh: 25,
   },
   bakery: {
     ovenPreheatKw: 30,
@@ -120,9 +141,10 @@ export const SCENARIO = {
 
 /** Default human promises and permissions – what the visitor can change. */
 export const DEFAULT_PROMISES = {
-  ev: { departureClock: 7, targetPct: 80, priceCapPence: null },
+  ev: { departureClock: 7, targetPct: 80, priceCapPence: null, exportAllowed: false },
   home: { comfort: 'normal' }, // 'tight' | 'normal' | 'relaxed'
   bakery: { openingClock: 6 },
+  battery: { mode: 'keep', share: true }, // mode: 'keep' | 'trade'; share: may lend to the street when the network asks
 };
 
 export const COMFORT_BANDS = {

@@ -262,14 +262,14 @@ function frameAt(sim, slotF, dt) {
   const L = (arr) => arr[i] + (arr[j] - arr[i]) * f;
   const band = COMFORT_BANDS[sim.promises.home.comfort];
   const wind = L(s.wind), solar = L(s.solar), feeder = L(s.feeder), street = L(s.street);
-  const ev = L(s.ev), heat = L(s.heat), ovens = L(s.ovens), cold = L(s.cold), battery = L(s.battery);
+  const ev = L(s.ev), heat = L(s.heat), ovens = L(s.ovens), cold = L(s.cold), battery = L(s.battery), lend = s.lend ? L(s.lend) : 0;
   const evSoc = s.evSoc[i] + (s.evSoc[i + 1] - s.evSoc[i]) * f;
   const temp = s.temp[i] + (s.temp[i + 1] - s.temp[i]) * f;
   const bSoc = (s.batterySoc[i] + (s.batterySoc[i + 1] - s.batterySoc[i]) * f) / SCENARIO.battery.capacityKwh;
   const depart = sim.parts.ev.depart;
   const carAway = slotF >= depart && slotF < SLOTS - 2;
   return {
-    dt, i, wind, solar, feeder, street, ev, heat, ovens, cold, battery, evSoc, temp, bSoc, carAway,
+    dt, i, wind, solar, feeder, street, ev, heat, ovens, cold, battery, evSoc, temp, bSoc, carAway, lend,
     price: L(s.price), renewFrac: L(s.renewFrac), outdoor: L(s.outdoor),
     windFrac: wind / 56, solarFrac: solar / 42, importFrac: Math.max(0, feeder - wind) / 40,
     evKw: ev, heatKw: heat, bakeryKw: ovens + cold, batteryKw: battery, batterySoc: bSoc,
@@ -298,6 +298,7 @@ function stateText(id, f, sim) {
   switch (id) {
     case 'car':
       if (f.carAway) return `away · came back at 18:00 with ${SCENARIO.ev.startPct}%`;
+      if (f.evKw < -0.1) return `selling ${(-f.evKw).toFixed(0)} kW to the street · ${f.evSoc.toFixed(0)}%`;
       if (f.evKw > 0.1) return `charging ${f.evKw.toFixed(0)} kW · ${f.evSoc.toFixed(0)}%`;
       if (f.i >= sim.parts.ev.depart - 1) return `ready · ${f.evSoc.toFixed(0)}%`;
       return `plugged in · ${f.evSoc.toFixed(0)}% · waiting for wind`;
@@ -312,11 +313,11 @@ function stateText(id, f, sim) {
       return `closed${cold || ' · quiet'}`;
     }
     case 'battery':
-      return `${(f.bSoc * 100).toFixed(0)}% · ${f.batteryKw > 0.1 ? `storing ${f.batteryKw.toFixed(0)} kW` : f.batteryKw < -0.1 ? `releasing ${(-f.batteryKw).toFixed(0)} kW` : 'holding'}`;
+      return `${(f.bSoc * 100).toFixed(0)}% · ${f.batteryKw > 0.1 ? `storing ${f.batteryKw.toFixed(0)} kW` : f.batteryKw < -0.1 ? `${sim.parts.battery.trade ? 'selling' : 'releasing'} ${(-f.batteryKw).toFixed(0)} kW` : 'holding'}`;
     case 'wind': return `${f.wind.toFixed(0)} kW to the street · ${windWords(f.wind)}`;
     case 'sun': return f.solar > 0.5 ? `${f.solar.toFixed(0)} kW from the rooftops` : 'night';
     case 'substation': return `${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW${f.feeder > SCENARIO.feederLimitKw ? ' · OVER LIMIT' : ''}`;
-    case 'street': return `${f.street.toFixed(0)} kW · ${f.street > 34 ? 'dinner time' : f.street < 14 ? 'asleep' : 'ticking over'}`;
+    case 'street': return f.lend > 0.1 ? `lending ${f.lend.toFixed(0)} kW to the cable · the network asked` : `${f.street.toFixed(0)} kW · ${f.street > 34 ? 'dinner time' : f.street < 14 ? 'asleep' : 'ticking over'}`;
     case 'grid': return f.feeder - f.wind > 0.5 ? `${(f.feeder - f.wind).toFixed(0)} kW beyond the wind` : 'nothing needed';
     default: return '';
   }
@@ -329,7 +330,7 @@ function renderPromise() {
   const p = app.sim.promises, pm = app.sim.permissions;
   const autoCount = Object.values(pm).filter((v) => v === 'auto').length;
   const askCount = Object.values(pm).filter((v) => v === 'ask').length;
-  el.promise.innerHTML = `<b>Your agreed promises</b>Car ${p.ev.targetPct}% by ${formatClock(p.ev.departureClock)}${p.ev.priceCapPence != null ? ` for ≤ ${money(p.ev.priceCapPence)}` : ''} · home ${COMFORT_BANDS[p.home.comfort].label} · bakery opens ${formatClock(p.bakery.openingClock)}<br>${autoCount} of 4 things may be moved automatically${askCount ? `, ${askCount} only after asking you` : ''}${app.pending ? '<br><span class="pend">A change is waiting for your answer</span>' : ''}`;
+  el.promise.innerHTML = `<b>Your agreed promises</b>Car ${p.ev.targetPct}% by ${formatClock(p.ev.departureClock)}${p.ev.priceCapPence != null ? ` for ≤ ${money(p.ev.priceCapPence)}` : ''}${p.ev.exportAllowed ? ', may sell at the peak' : ''} · home ${COMFORT_BANDS[p.home.comfort].label} · bakery opens ${formatClock(p.bakery.openingClock)}${p.battery?.mode === 'trade' ? ' · battery trades' : ''}${p.battery?.share === false ? ' · battery never lends' : ''}<br>${autoCount} of 4 things may be moved automatically${askCount ? `, ${askCount} only after asking you` : ''}${app.pending ? '<br><span class="pend">A change is waiting for your answer</span>' : ''}`;
 }
 
 function applyChange(apply) {
@@ -399,6 +400,9 @@ function diffLines(a, b) {
   out.push(`Car ready: ${arrow(a.metrics.evReadyPct, b.metrics.evReadyPct, (v) => `${Math.round(v)}%`, false)}`);
   out.push(`Car on wind: ${arrow(a.metrics.evWindShare, b.metrics.evWindShare, (v) => `${Math.round(v * 100)}%`, false)}`);
   out.push(`Street peak: ${arrow(a.metrics.peakKw, b.metrics.peakKw, (v) => `${v.toFixed(0)} kW`)} of ${SCENARIO.feederLimitKw}`);
+  if (a.metrics.evExportEarnedPence !== b.metrics.evExportEarnedPence) out.push(`Car earned: ${arrow(a.metrics.evExportEarnedPence, b.metrics.evExportEarnedPence, money, false)}`);
+  if (a.metrics.batterySoldKwh !== b.metrics.batterySoldKwh) out.push(`Battery sold: ${arrow(a.metrics.batterySoldKwh, b.metrics.batterySoldKwh, (v) => `${v.toFixed(1)} kWh`, false)}`);
+  if (a.metrics.lentKwh !== b.metrics.lentKwh) out.push(`Street lent: ${arrow(a.metrics.lentKwh, b.metrics.lentKwh, (v) => `${v.toFixed(1)} kWh`)}`);
   if (a.metrics.overloadMinutes !== b.metrics.overloadMinutes) out.push(`Cable over limit: ${arrow(a.metrics.overloadMinutes, b.metrics.overloadMinutes, (v) => `${v} min`)}`);
   const ha = a.parts.heat.preheatSlots * 15, hb = b.parts.heat.preheatSlots * 15;
   if (ha !== hb) out.push(`Home pre-warmed on wind: ${ha} → <b>${hb} min</b>`);
@@ -414,6 +418,9 @@ function changedInputs(a, b) {
   if (a.promises.ev.priceCapPence !== b.promises.ev.priceCapPence) out.push(`spending limit ${a.promises.ev.priceCapPence == null ? 'none' : money(a.promises.ev.priceCapPence)} → ${b.promises.ev.priceCapPence == null ? 'none' : money(b.promises.ev.priceCapPence)}`);
   if (a.promises.home.comfort !== b.promises.home.comfort) out.push(`home ${COMFORT_BANDS[a.promises.home.comfort].label} → ${COMFORT_BANDS[b.promises.home.comfort].label}`);
   if (a.promises.bakery.openingClock !== b.promises.bakery.openingClock) out.push(`bakery opens ${formatClock(a.promises.bakery.openingClock)} → ${formatClock(b.promises.bakery.openingClock)}`);
+  if (!!a.promises.ev.exportAllowed !== !!b.promises.ev.exportAllowed) out.push(`car ${b.promises.ev.exportAllowed ? 'may now sell' : 'no longer sells'} at the evening peak`);
+  if ((a.promises.battery?.mode || 'keep') !== (b.promises.battery?.mode || 'keep')) out.push(`battery ${b.promises.battery.mode === 'trade' ? 'now trades with the grid' : 'now keeps the house running'}`);
+  if ((a.promises.battery?.share ?? true) !== (b.promises.battery?.share ?? true)) out.push(`battery ${b.promises.battery.share ? 'may lend' : 'no longer lends'} to the street`);
   for (const k of ['ev', 'heat', 'bakery', 'battery']) if (a.permissions[k] !== b.permissions[k]) out.push(`${{ ev: 'car', heat: 'heating', bakery: 'cold store', battery: 'battery' }[k]} permission: ${a.permissions[k]} → ${b.permissions[k]}`);
   if (a.resolutions.evPriority !== b.resolutions.evPriority) out.push(`priority: ${b.resolutions.evPriority === 'price' ? 'the price limit' : 'the departure target'}`);
   return out;
@@ -441,6 +448,7 @@ const CONTROLS = {
     { kind: 'slider', label: 'I leave for work at', key: ['promises', 'ev', 'departureClock'], options: EV_DEPARTURE_OPTIONS, fmt: (v) => formatClock(v) },
     { kind: 'chips', label: 'The car must be at', key: ['promises', 'ev', 'targetPct'], options: EV_TARGET_OPTIONS, fmt: (v) => `${v}%` },
     { kind: 'chips', label: 'Spend no more than', key: ['promises', 'ev', 'priceCapPence'], options: EV_PRICE_CAP_OPTIONS, fmt: (v) => (v == null ? 'No limit' : money(v)) },
+    { kind: 'chips', label: 'Sell power to the street at the evening peak (vehicle to grid)', key: ['promises', 'ev', 'exportAllowed'], options: [false, true], fmt: (v) => (v ? `Yes, keep ${SCENARIO.ev.exportReservePct}% in reserve` : 'No') },
     { kind: 'perm', label: 'What the system may do with charging', key: ['permissions', 'ev'] },
   ],
   home: (ip) => [
@@ -452,6 +460,8 @@ const CONTROLS = {
     { kind: 'perm', label: 'What the system may do with the cold store', key: ['permissions', 'bakery'] },
   ],
   battery: (ip) => [
+    { kind: 'chips', label: 'Use the battery to', key: ['promises', 'battery', 'mode'], options: ['keep', 'trade'], fmt: (v) => (v === 'trade' ? 'Trade with the grid' : 'Keep the house running') },
+    { kind: 'chips', label: 'Lend to the street when the network asks', key: ['promises', 'battery', 'share'], options: [true, false], fmt: (v) => (v ? 'Yes' : 'No') },
     { kind: 'perm', label: 'What the system may do with the battery', key: ['permissions', 'battery'] },
   ],
 };
@@ -683,13 +693,24 @@ function updateRide(now, pos, look) {
     app.rideAmt = Math.min(1, t / 1.6); // the world grows around you as you become small
     return true;
   }
+  // phase entries are idempotent and also run at the end, so a slow or hidden frame rate can never skip them
+  const land = () => {
+    if (r.migrated) return;
+    r.migrated = true;
+    // the lit quarter-hours fly to their new times while the visitor is looking at the ring
+    if (app.prevSim) dayring.migrate(app.prevSim, app.sim);
+    dayring.spotlight(r.dest, 3.2);
+  };
+  const lookHome = () => {
+    if (r.looked) return;
+    r.looked = true;
+    const b = bearingOf(r.target);
+    cam.userYaw = b.yaw; cam.userPitch = clamp(b.pitch - 0.06, -0.3, 0.3);
+    cam.yaw = cam.yawT = b.yaw; cam.pitch = cam.pitchT = cam.userPitch + 0.02; cam.dolly = cam.dollyT = 0;
+    app.choreoUntil = performance.now() + RIDE.back * 1000 + 300;
+  };
   if (t < RIDE.fly + RIDE.land) {
-    if (!r.migrated) {
-      r.migrated = true;
-      // the lit quarter-hours fly to their new times while the visitor is looking at the ring
-      if (app.prevSim) dayring.migrate(app.prevSim, app.sim);
-      dayring.spotlight(r.dest, 3.2);
-    }
+    land();
     const u = smooth(clamp((t - RIDE.fly) / RIDE.land, 0, 1));
     pos.copy(r.endPos).lerp(r.landPos, u);
     look.copy(r.target).lerp(r.bead, u);
@@ -697,13 +718,7 @@ function updateRide(now, pos, look) {
     return true;
   }
   if (t < RIDE.fly + RIDE.land + RIDE.back) {
-    if (!r.looked) {
-      r.looked = true;
-      const b = bearingOf(r.target);
-      cam.userYaw = b.yaw; cam.userPitch = clamp(b.pitch - 0.06, -0.3, 0.3);
-      cam.yaw = cam.yawT = b.yaw; cam.pitch = cam.pitchT = cam.userPitch + 0.02; cam.dolly = cam.dollyT = 0;
-      app.choreoUntil = performance.now() + RIDE.back * 1000 + 300;
-    }
+    land(); lookHome();
     const u = smooth(clamp((t - RIDE.fly - RIDE.land) / RIDE.back, 0, 1));
     app.rideAmt = 0;
     pos.copy(r.landPos).lerp(EYE, u);
@@ -711,6 +726,7 @@ function updateRide(now, pos, look) {
     look.copy(r.bead).lerp(fwd, u);
     return true;
   }
+  land(); lookHome();
   app.ride = null;
   app.rideAmt = 0;
   if (app.toastPending) { app.toastPending = false; showToast(); }
@@ -1071,7 +1087,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   E.toCar.flow = f.evKw;
   E.toHome.flow = f.heatKw + SCENARIO.home.baseKw;
   E.toBakery.flow = f.bakeryKw;
-  E.toStreet.flow = f.street;
+  E.toStreet.flow = f.street - 2.5 * f.lend; // lending: the street sends power back up the strand
   E.battery.flow = f.batteryKw;
   const dimOthers = revealId ? 0.45 : 1;
   const linkOf = { windIn: 'wind', gridIn: 'grid', sunIn: 'sun', toCar: 'car', toHome: 'home', toBakery: 'bakery', toStreet: 'street', battery: 'battery' };
@@ -1082,12 +1098,12 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   for (const k2 in E) E[k2].update(dtRaw, ribbonTime, { hz: stringHz, wave: 0.6, shudder: k2 === 'toStreet' || k2 === 'windIn' || k2 === 'gridIn' ? shudder : shudder * 0.5, dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
   for (const k2 in ribbons.info) ribbons.info[k2].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k2 === revealId ? 1 : 0.25) : 0.7) : 0.08 });
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
-  const ringAct = { car: f.evKw / 7, home: f.heatKw / 3, bakery: f.bakeryKw / 38, battery: Math.abs(f.batteryKw) / 5, substation: 0 };
+  const ringAct = { car: Math.abs(f.evKw) / 7, home: f.heatKw / 3, bakery: f.bakeryKw / 38, battery: Math.abs(f.batteryKw) / 5, substation: 0 };
   dayring.update(dtRaw, app.slotF, visualTime, frozen ? {} : ringAct, app.mode === 'replay');
   dayring.setDim(revealId ? 0.45 : app.mode === 'attract' ? 0.7 : 1);
   env.update(dtRaw, visualTime, camPos, {
     car: f.evKw > 0 ? 1 : 0.25, home: f.heatKw > 0 ? 0.9 : 0.3, bakery: f.bakeryKw > 8 ? 1 : 0.3, battery: Math.abs(f.batteryKw) > 0 ? 1 : 0.3,
-    substation: 0.3 + 0.7 * Math.min(1, f.cableFrac), wind: 0.2 + 0.8 * f.windFrac, street: 0.3 + 0.7 * f.streetFrac,
+    substation: 0.3 + 0.7 * Math.min(1, f.cableFrac), wind: 0.2 + 0.8 * f.windFrac, street: f.lend > 0.1 ? 1 : 0.3 + 0.7 * f.streetFrac,
   }, revealId ? 0.55 : 1);
   R.render();
 
