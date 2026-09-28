@@ -297,6 +297,20 @@ export class DayRing {
     return this.rings.map((r) => ({ id: r.def.id, label: r.def.label, pos: ringPoint(r.def, slotF, new THREE.Vector3()), on: !!r.active[slot], activity: r.activity }));
   }
 
+  /** The slot under a screen point, by intersecting the view ray with the ring's plane. Null when the ray misses. */
+  slotAtScreen(camera, width, height, x, y) {
+    const v = this._v.set((x / width) * 2 - 1, -(y / height) * 2 + 1, 0.5).unproject(camera);
+    const dir = v.sub(camera.position).normalize();
+    const planeY = -2.3;
+    const t = (planeY - camera.position.y) / dir.y;
+    if (!(t > 0)) return null;
+    const px = camera.position.x + dir.x * t, pz = camera.position.z + dir.z * t;
+    const a = Math.atan2(px, -pz);
+    let s = ((a - Math.PI) / (Math.PI * 2)) * SLOTS;
+    s = ((s % SLOTS) + SLOTS) % SLOTS;
+    return s;
+  }
+
   /** Nearest arc to a screen point (CSS px), or null. Used for tap-to-open on the ring itself. */
   nearest(camera, width, height, x, y, maxPx = 84) {
     let best = null;

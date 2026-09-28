@@ -23,6 +23,13 @@ export class Ribbon {
     this.to = to.clone();
     this.pulses = [];
     this.traceAlpha = 0;
+    // the string: a transverse wave along the strand. Alternating current is a
+    // wave; here its amplitude follows the power on the link and its speed the
+    // tariff, so a loaded strand trembles and a cheap, windy hour hums slow.
+    this.wavePhase = seed * 1.7;
+    this.waveN = 5 + (seed % 3);
+    this.waveAmp = 0;
+    this.shudder = 0;
     this.setCurve(bulge, seed);
 
     const positions = new Float32Array(count * 3);
@@ -74,7 +81,7 @@ export class Ribbon {
     this.lutB = frames.binormals;
   }
 
-  sample(t, out, u, v, w) {
+  sample(t, out, u, v, w, wave = 0, jitter = 0) {
     const x = t * LUT;
     const i = Math.min(LUT - 1, Math.floor(x));
     const f = x - i;
@@ -82,9 +89,10 @@ export class Ribbon {
     const n0 = this.lutN[i], b0 = this.lutB[i];
     // width tapers at the ends so the ribbon appears to emerge from the object
     const taper = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI) * 0.7 + 0.3;
-    out.x = p0.x + (p1.x - p0.x) * f + (n0.x * u + b0.x * v) * w * taper;
-    out.y = p0.y + (p1.y - p0.y) * f + (n0.y * u + b0.y * v) * w * taper;
-    out.z = p0.z + (p1.z - p0.z) * f + (n0.z * u + b0.z * v) * w * taper;
+    const nu = u * w * taper + wave * taper, bv = v * w * taper + jitter * taper;
+    out.x = p0.x + (p1.x - p0.x) * f + n0.x * nu + b0.x * bv;
+    out.y = p0.y + (p1.y - p0.y) * f + n0.y * nu + b0.y * bv;
+    out.z = p0.z + (p1.z - p0.z) * f + n0.z * nu + b0.z * bv;
   }
 
   /** Fire a packet along the ribbon (information only). dir = +1 from→to, -1 to→from */
@@ -106,12 +114,21 @@ export class Ribbon {
       const activeCount = Math.round(this.count * (0.05 + 0.95 * Math.pow(Math.max(this.visual, b * 0.8), 0.7)));
       const spd = ((0.05 + 0.32 * this.visual) * timeScale + 0.004) * (1 + 6 * b);
       const w = this.width * (0.35 + 0.65 * this.visual) * (1 + 2.2 * b);
+      // the string: phase advances with the tariff's pitch; amplitude with the power; shudder with cable strain
+      const hz = opts.hz ?? 0.8;
+      this.wavePhase += dt * hz * Math.PI * 2 * (0.25 + 0.75 * Math.max(timeScale, b));
+      const ampT = (opts.wave ?? 0.6) * this.width * (0.15 + 0.85 * this.visual);
+      this.waveAmp += (ampT - this.waveAmp) * Math.min(1, dt * 3);
+      this.shudder += ((opts.shudder ?? 0) - this.shudder) * Math.min(1, dt * 4);
+      const kN = this.waveN * Math.PI * 2;
       for (let i = 0; i < this.count; i++) {
         let t = this.t[i] + dir * dt * spd * this.speed[i];
         if (t > 1) t -= 1; if (t < 0) t += 1;
         this.t[i] = t;
         if (i < activeCount) {
-          this.sample(t, p, this.off[i * 2], this.off[i * 2 + 1], w);
+          const wave = this.waveAmp * Math.sin(t * kN - this.wavePhase);
+          const jit = this.shudder > 0.01 ? this.shudder * 0.22 * Math.sin(t * 61.3 + this.wavePhase * 7.1 + i) : 0;
+          this.sample(t, p, this.off[i * 2], this.off[i * 2 + 1], w, wave, jit);
         } else {
           p.set(0, -9999, 0);
         }

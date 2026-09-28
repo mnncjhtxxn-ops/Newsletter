@@ -23,7 +23,7 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 /* ------------------------------------------------------------------ */
 /* Settings (station-level, persisted best-effort; URL hash overrides) */
 /* ------------------------------------------------------------------ */
-const settings = { profile: 'balanced', timeout: 90, dayLength: 110, sound: 0 };
+const settings = { profile: 'balanced', timeout: 90, dayLength: 110, sound: 1 };
 try {
   const saved = JSON.parse(localStorage.getItem('orchestra.settings') || '{}');
   Object.assign(settings, saved);
@@ -187,6 +187,7 @@ function accept(input, sim, { replay = false } = {}) {
     app.choreoUntil = app.ride ? Infinity : anyChange ? performance.now() + 2300 : 0; // wall clock: the pause must not stretch on a slow frame rate; a ride sets it when it lands
     app.timeScale = app.paused ? 0 : anyChange ? 0 : 1;
     app.lessonsAuto = false;
+    audio.downbeat();
     if (app.ride) app.toastPending = true; else showToast();
     el.chipChanged.classList.remove('hidden');
     el.chipLessons.classList.remove('hidden');
@@ -790,6 +791,9 @@ touch.on('down', ({ x, y, node }) => {
   if (app.mode === 'reveal') return; // the panel owns the interaction
   app.holding = true;
   app.timeScale = 0;
+  // the baton: a drag that starts on an arc of the ring sweeps time to wherever the finger goes
+  app.baton = !node && app.mode !== 'attract' ? dayring.nearest(R.camera, R.state.width, R.state.height, x, y) : null;
+  app.batonTarget = null;
   app.touch.lastX = x; app.touch.lastY = y;
   app.touch.world.copy(worldAt(x, y, node));
   app.touch.x = x; app.touch.y = y;
@@ -799,6 +803,12 @@ touch.on('down', ({ x, y, node }) => {
 });
 touch.on('move', ({ x, y, node }) => {
   if (!app.holding) return;
+  if (app.baton) {
+    const s = dayring.slotAtScreen(R.camera, R.state.width, R.state.height, x, y);
+    if (s != null && Math.hypot(x - app.touch.lastX, y - app.touch.lastY) > 0) { app.batonTarget = s; app.scrubbing = true; }
+    app.touch.x = x; app.touch.y = y;
+    return;
+  }
   if (!node && app.touch.lastX != null) {
     // dragging empty space turns your head
     const k = (R.camera.fov * Math.PI / 180) / R.state.height;
@@ -833,6 +843,7 @@ touch.on('tap', ({ x, y, node }) => {
 });
 touch.on('up', () => {
   app.holding = false;
+  app.baton = null; app.batonTarget = null; app.scrubbing = false;
   app.touch.lastX = null;
   setTimeout(() => { app.looked = false; }, 50);
   app.touch.targetStrength = 0;
@@ -951,6 +962,13 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   if (Math.abs(app.timeScale - app.timeScaleCur) < 0.005) app.timeScaleCur = app.timeScale;
   const prevSlot = Math.floor(app.slotF);
   app.slotF = Math.max(0, app.slotF + dtRaw * slotsPerSec * app.timeScaleCur);
+  if (app.batonTarget != null && app.holding) {
+    // sweep the day to the slot under the finger, the short way round
+    let d = app.batonTarget - app.slotF;
+    if (d > SLOTS / 2) d -= SLOTS; if (d < -SLOTS / 2) d += SLOTS;
+    app.slotF = ((app.slotF + d * Math.min(1, dtRaw * 9)) % SLOTS + SLOTS) % SLOTS;
+    syncCursor();
+  }
   if (app.slotF >= SLOTS) {
     app.slotF -= SLOTS;
     app.decisionCursor = 0;
@@ -973,6 +991,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
       if (app.mode !== 'attract' && d.kind !== 'ask') caption(d.node, d.text);
       audio.ping(d.kind === 'ask' ? 'ask' : 'decision');
     }
+    if (slot !== prevSlot) audio.beat(slot, f, (dayLen / SLOTS) / Math.max(app.timeScaleCur, 0.2));
     if (slot !== prevSlot && slot % 8 === 0) { for (const id of ['car', 'home', 'bakery', 'wind']) ribbons.info[id]?.pulse(1); }
     if (slot !== prevSlot && slot % 12 === 6) { ribbons.info.substation?.pulse(1); ribbons.info.battery?.pulse(1); }
   }
@@ -1057,7 +1076,10 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   const dimOthers = revealId ? 0.45 : 1;
   const linkOf = { windIn: 'wind', gridIn: 'grid', sunIn: 'sun', toCar: 'car', toHome: 'home', toBakery: 'bakery', toStreet: 'street', battery: 'battery' };
   const ribbonTime = riding ? 1 : app.timeScaleCur;
-  for (const k2 in E) E[k2].update(dtRaw, ribbonTime, { dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
+  // the strings: pitch from the tariff, shudder from cable strain
+  const stringHz = 0.45 + 1.3 * clamp((f.price - 6) / 26, 0, 1);
+  const shudder = clamp((f.cableFrac - 0.85) / 0.15, 0, 1);
+  for (const k2 in E) E[k2].update(dtRaw, ribbonTime, { hz: stringHz, wave: 0.6, shudder: k2 === 'toStreet' || k2 === 'windIn' || k2 === 'gridIn' ? shudder : shudder * 0.5, dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
   for (const k2 in ribbons.info) ribbons.info[k2].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k2 === revealId ? 1 : 0.25) : 0.7) : 0.08 });
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
   const ringAct = { car: f.evKw / 7, home: f.heatKw / 3, bakery: f.bakeryKw / 38, battery: Math.abs(f.batteryKw) / 5, substation: 0 };
@@ -1070,11 +1092,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   R.render();
 
   // audio follows activity
-  if (audio.enabled) {
-    audio.setActivity('wind', f.windFrac); audio.setActivity('sun', f.solarFrac); audio.setActivity('car', f.evKw > 0 ? 1 : 0.1);
-    audio.setActivity('home', f.heatKw > 0 ? 0.9 : 0.2); audio.setActivity('bakery', f.bakeryKw / 30); audio.setActivity('battery', Math.abs(f.batteryKw) / 5);
-    audio.setActivity('substation', f.cableFrac); audio.setActivity('street', f.streetFrac);
-  }
+  if (audio.enabled) { audio.setFrame(f); audio.setSwell(app.rideAmt || 0); }
 
   // HTML overlay: positions every rendered frame; text at ~4 Hz or on change
   const proj = nodes.project(R.camera, R.state.width, R.state.height);
@@ -1198,4 +1216,4 @@ setInterval(() => {
 
 // Expose a tiny inspection hook for testing on the station (no UI).
 window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam, env };
-window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch; window.__orchestra.RIDE = RIDE;
+window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch; window.__orchestra.RIDE = RIDE; window.__orchestra.audio = audio;
