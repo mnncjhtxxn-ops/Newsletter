@@ -47,6 +47,8 @@ The room around the sculpture (mirror floor, ceiling pool, per-object ripple poo
 
 This exceeds the 800-particle ambient cap in Balanced/Detail when the decorative points are counted. It is documented rather than hidden so that hardware profiling can decide whether to keep it. If the real kiosk cannot hold 30 fps in Balanced, the first two things to remove are the reflection (set `reflection: false` in `src/scene/governor.js` PROFILES) and the landscape points.
 
+The day ring adds five ghost tiers (96 beads each, one draw call per tier) and five threads of 56 points, animated in JavaScript only for tiers whose participant is active. The ride is a camera path; it adds nothing to the draw list.
+
 ## What is not implemented
 
 - Adaptive quality (automatic downgrade / upgrade with hysteresis, E11). Profiles are staff-selected.

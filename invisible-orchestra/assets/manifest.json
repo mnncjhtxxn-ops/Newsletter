@@ -1,45 +1,34 @@
 {
-  "note": "Only geometry is used. Textures, materials and source files are never bundled; each model is decimated, normalised and quantised by tools/prepare-assets.py into src/assets/<name>.geo, which the single-file build embeds. All three models were sourced on Sketchfab. Adam Pollock confirmed on 27 September 2026 that each allows public and commercial use, including the Timber Frame House.",
+  "note": "Only geometry is used. Textures, materials and source files are never bundled; the model is decimated, normalised and quantised by tools/prepare-assets.py into src/assets/<name>.geo, which the single-file build embeds. The car was sourced on Sketchfab; Adam Pollock confirmed on 27 September 2026 that it allows public and commercial use. The Timber Frame House and Korean Bakery models supplied earlier are no longer used: at ten metres a dense timber frame and a shop interior did not read as a house and a bakery, so both are now drawn procedurally in the same hand as the rest of the sculpture. Their files are not bundled and no attribution is required.",
   "assets": [
     {
       "id": "car",
       "title": "Free Concept Car 038",
       "creator": "Unity Fan (YouTube channel), as named in the source file",
-      "sourceFile": "free-concept-car-038-public-domain-cc0.zip \u2192 source/Concept Car 038 - Unity Fan - Youtube channel.fbx",
+      "sourceFile": "free-concept-car-038-public-domain-cc0.zip → source/Concept Car 038 - Unity Fan - Youtube channel.fbx",
       "licence": "CC0 / public domain (Sketchfab listing, per archive name). Use confirmed.",
       "sourceUrl": "not recorded in the file",
-      "changes": "joined 36 meshes (ground planes dropped), decimated 221,182 \u2192 24,000 triangles, rotated long axis to X, scaled to 2.5 units, quantised to int16",
+      "changes": "joined 36 meshes (ground planes dropped), decimated 221,182 → 24,000 triangles, rotated long axis to X, scaled to 2.5 units, quantised to int16",
       "runtimePath": "src/assets/car.geo",
       "triangles": 24000,
       "sourcePlatform": "Sketchfab",
       "useConfirmedBy": "Adam Pollock, 27 September 2026: public and commercial use permitted"
-    },
+    }
+  ],
+  "retired": [
     {
       "id": "house",
       "title": "Timber Frame House",
       "creator": "Razny (https://sketchfab.com/razniak1910)",
-      "sourceFile": "timber_frame_house.glb",
-      "licence": "Sketchfab Standard (per file metadata). Public and commercial use confirmed by Adam Pollock; cleared for the exhibition build.",
-      "sourceUrl": "https://sketchfab.com/3d-models/timber-frame-house-af71940329ee4d27bb4fe5dcc0173616",
-      "changes": "joined 84 meshes, decimated 194,153 \u2192 49,949 triangles (small disconnected parts limit further collapse), scaled to 2.9 units, quantised to int16",
-      "runtimePath": "src/assets/house.geo",
-      "triangles": 49949,
-      "sourcePlatform": "Sketchfab",
-      "useConfirmedBy": "Adam Pollock, 27 September 2026: public and commercial use permitted"
+      "status": "retired, not bundled"
     },
     {
       "id": "bakery",
       "title": "Korean Bakery",
       "creator": "Bjarne Stokhof",
-      "sourceFile": "korean-bakery.zip \u2192 source/kobakery_render.blend",
-      "licence": "Creative Commons Attribution 4.0 (CC BY 4.0), http://creativecommons.org/licenses/by/4.0/",
       "sourceUrl": "https://skfb.ly/orTHn",
-      "changes": "joined 33 meshes, decimated 38,299 \u2192 24,000 triangles, scaled to 2.8 units, quantised to int16",
-      "runtimePath": "src/assets/bakery.geo",
-      "triangles": 24000,
-      "sourcePlatform": "Sketchfab",
-      "useConfirmedBy": "Adam Pollock, 27 September 2026: public and commercial use permitted",
-      "attribution": "\"Korean Bakery\" (https://skfb.ly/orTHn) by Bjarne Stokhof is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/)."
+      "licence": "CC BY 4.0",
+      "status": "retired, not bundled; attribution no longer required"
     }
   ]
 }

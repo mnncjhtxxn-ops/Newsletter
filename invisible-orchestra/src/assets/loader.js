@@ -1,7 +1,5 @@
 import * as THREE from 'three';
 import carGeo from './car.geo';
-import houseGeo from './house.geo';
-import bakeryGeo from './bakery.geo';
 
 /**
  * Compact geometry embedded in the build (see tools/prepare-assets.py).
@@ -9,7 +7,7 @@ import bakeryGeo from './bakery.geo';
  * samples) and the hard-light projection (the mesh itself), so the object
  * that resolves is the same form the visitor saw in the sculpture.
  */
-const FILES = { car: carGeo, house: houseGeo, bakery: bakeryGeo };
+const FILES = { car: carGeo };
 const cache = {};
 
 function decode(bytes) {

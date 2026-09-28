@@ -28,18 +28,21 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | ID | Test | Status | Evidence |
 |---|---|---|---|
 | V01 | Attract scene: composed depth, recognisable objects, negative space | PASS as built / **awaiting your visual sign-off** | screenshots in the session; the objects are light-formed point clouds, not PBR models (see the art-direction note in the handover) |
-| V02 | Close inspection quality | PASS as built / **awaiting your visual sign-off** | supplied concept car, timber-frame house and bakery models as hard-light projections; procedural turbine and battery; framing verified beside the panel |
-| V03 | Pull-apart reveal with tap alternative | PASS | tap on object, tap on score stave, and the visible "Why did charging happen then?" button all open the same reveal |
-| V04 | Before / with-your-change replay | PASS | ghost bars of the previous run in the score, "what changed" panel with the changed input named |
+| V02 | Close inspection quality | PASS as built / **awaiting your visual sign-off** | supplied concept car and procedural house, bakery, battery and turbine as hard-light projections (max-blended so overlaps never blow out); per-object viewing distance; framing verified beside the panel |
+| V03 | Pull-apart reveal with tap alternative | PASS | tap on object, tap on its arc of the ring (verified with synthetic touch in both orientations), and the visible "Why did charging happen then?" button all open the same reveal |
+| V04 | Before / with-your-change replay | PASS | ghost tier of the previous plan beneath each arc of the ring during the replay, lit beads flying to their new times, "what changed" panel with the changed input named |
 | V05 | Conflicting requirements | PASS | price-limit conflict with two validated options; infeasible target with bound-based options |
 | V06 | Layers distinguishable without colour alone | PASS | energy = continuous streams, information = dotted traces and packets, authority = cards and a pending marker |
 | V07 | Glass | NOT RUN | no glass is used |
 | V08 | Reduced motion / audio off | PASS | `prefers-reduced-motion` removes camera drift and damps the ripple; sound is off by default and never carries meaning |
-| V09 | Portrait hardware reach | PARTIAL | portrait layout puts cards, controls and the score in the lower band; physical reach on a mounted 55-inch screen **BLOCKED** (no hardware) |
+| V09 | Portrait hardware reach | PARTIAL | portrait layout puts cards, controls and the reveal sheet in the lower band; physical reach on a mounted 55-inch screen **BLOCKED** (no hardware) |
 | V10 | Rapid interaction cannot strand the app | PASS | 60 automated cycles with cancelled interactions, resets mid-transition, no errors |
 | V11 | Window resize / orientation change (e.g. browser going fullscreen on the kiosk) | PASS | landscape → portrait → landscape in headless Chromium: canvas CSS and buffer sizes follow the window, no errors. A bug found in this pass (inline canvas sizes pinned the old size) is fixed |
 | V13 | Permission chips ('ask' / 'never') respond to a real touch tap, both orientations | PASS | found broken on the big screen: the click handler referenced a removed field and threw before registering the change. Fixed; verified with synthetic touch taps in headless Chromium, portrait and landscape |
 | V14 | Portrait sheet shows the controls without scrolling; Release stays visible | PASS | controls now come before the explanation in portrait; footer is sticky. 'Show me the working' label resets on every open |
+| V15 | Guided first minute: touch the car → change and replay → now try your home | PASS | automated flow in both orientations: each prompt anchored to its object, dismissed only by the action, camera turned to face the anchor, gesture hint shown once the guide completes |
+| V16 | The ride | PASS as built / **awaiting your visual sign-off** | slowed-down frame captures along the path: flight from the turbine through the cable into the car, landing over the ring while beads fly, return to the eye; touch ignored during the ride; reduced motion skips it |
+| V17 | Recognisability at ten metres | PASS as built / **awaiting your visual sign-off** | cottage, storefront with BAKERY sign, wall battery and car all identifiable in headless renders from the viewer's eye |
 | V12 | Environment: mirror floor, pools, pillars, landscape, bokeh | PASS as built / **awaiting your visual sign-off** | screenshots in the session; reflection off in Economy; cost not measured on hardware (see PERFORMANCE.md) |
 
 ## Operational tests (spec §12)

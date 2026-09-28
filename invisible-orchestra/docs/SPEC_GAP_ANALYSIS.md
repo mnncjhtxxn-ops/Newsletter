@@ -11,8 +11,8 @@
 | Ask before changing an agreed plan: pending pauses the clock, decline respected | Done (`reviewAuthority`, app-level accepted/draft/pending state) |
 | Edits stay a draft until "Replay with this change" | Done |
 | "Same starting point. Earlier departure." | Done: the "what changed" panel names the changed input |
-| Visible non-drag alternative to pull | Done: tap, score stave, and a visible "Why did charging happen then?" button |
-| Portrait lower control band; 48 px targets | Done for layout (cards, controls, score in the lower band; ≥ 42–50 px targets); physical reach untested |
+| Visible non-drag alternative to pull | Done: tap on the object, tap on its arc of the ring, and a visible "Why did charging happen then?" button |
+| Portrait lower control band; 48 px targets | Done for layout (cards, controls and the reveal sheet in the lower band, controls before explanation; ≥ 42–50 px targets); physical reach untested |
 | Reduced motion | Done |
 | WebGL2 capability check and context-loss state | Done |
 | Attract copy with "Illustrative 2037 scenario" | Done (kept the original "Touch to see what makes it possible" line) |

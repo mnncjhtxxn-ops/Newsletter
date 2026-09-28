@@ -16,10 +16,10 @@ export const NODE_DEFS = [
   { id: 'grid', label: 'The wider grid', pos: ring(180, 24, 10), color: '#8fa3d9', hot: '#dfe7ff', shape: 'grid', scale: 2.0, dim: 0.3, face: 180 },
   { id: 'substation', label: "The street's cable", pos: ring(6, 19, 3.2), color: '#b9c8ff', hot: '#ffffff', shape: 'substation', scale: 0.95, dim: 0.3, size: 0.65, face: 6 },
   { id: 'score', label: 'The orchestra', pos: [0, -3.4, -1.2], color: '#9fe9ff', hot: '#ffffff', shape: 'score', scale: 0.9, info: true, dim: 0.35 },
-  { id: 'battery', label: 'The home battery', pos: ring(-14, 11.5, -1.9), color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 0.8, dim: 0.22, size: 0.5, face: -14 },
-  { id: 'car', label: 'Your car', pos: ring(-40, 12.5, -1.4), color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.35, dim: 0.5, size: 0.42, face: -40 },
-  { id: 'home', label: 'Your home', pos: ring(42, 12.5, -1.1), color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.5, dim: 0.45, size: 0.42, face: 42 },
-  { id: 'bakery', label: 'The bakery', pos: ring(-118, 13.5, 0.2), color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.15, dim: 0.45, size: 0.42, face: -118 },
+  { id: 'battery', label: 'The home battery', pos: ring(-14, 10.4, -1.7), color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 1.25, dim: 0.7, size: 0.55, face: -14, turn: 22, view: 6.0 },
+  { id: 'car', label: 'Your car', pos: ring(-42, 10.6, -1.5), color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.6, dim: 0.5, size: 0.42, face: -42, turn: 28, view: 8.2 },
+  { id: 'home', label: 'Your home', pos: ring(42, 10.6, -1.2), color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.9, dim: 0.45, size: 0.42, face: 42, turn: -32, view: 9.4 },
+  { id: 'bakery', label: 'The bakery', pos: ring(-100, 11.4, -0.4), color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.5, dim: 0.5, size: 0.42, face: -100, turn: 18, view: 8.6 },
   { id: 'street', label: 'The other homes', pos: ring(124, 15, 0.6), color: '#b7a6f2', hot: '#e6dcff', shape: 'street', scale: 1.1, dim: 0.32, face: 124 },
 ];
 
@@ -33,7 +33,7 @@ export class Nodes {
       const g = new THREE.Group();
       g.position.set(...def.pos);
       g.scale.setScalar(def.scale);
-      if (def.face != null) g.rotation.y = -def.face * Math.PI / 180; // long axis tangential to the ring, front toward the viewer
+      if (def.face != null) g.rotation.y = -(def.face + (def.turn || 0)) * Math.PI / 180; // front toward the viewer, turned for a three-quarter view
       const mat = pointsMaterial({ color: def.color, colorHot: def.hot, size: def.size || (def.info ? 0.55 : 0.85), opacity: def.dim || 0.9 });
       // where the viewer sees this object from, in the object's own space (plus a little either side for the drift)
       g.updateMatrixWorld(true);
@@ -105,7 +105,7 @@ export class Nodes {
       if (id === 'car' && frame?.carAway) target *= 0.12;
       // condensing: the particles pull in and dim as the projection takes over
       const c = isRevealed ? condense : (n.holo ? n.holo.c : 0);
-      if (c > 0) target *= 1 - 0.65 * c;
+      if (c > 0) target *= 1 - 0.8 * c;
       n.mat.uniforms.uBreath.value = 0.02 * (1 - 0.8 * c);
       if (n.holo) n.holo.update(isRevealed ? condense : Math.max(0, n.holo.c - (frame?.dt ?? 0.016) * 2.5), time, n.extras.blades ? n.extras.blades.rotation.z : null);
       if (id === 'sun' && frame) target *= 0.18 + 0.82 * Math.min(1, frame.solarFrac * 1.5);

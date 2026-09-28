@@ -18,14 +18,10 @@ No fonts, images, audio or video assets are bundled: every sprite is drawn proce
 
 ## 3D models (geometry only)
 
-Three supplied models are embedded as decimated, quantised geometry (no textures or materials). Full details, changes made and licence status are in `assets/manifest.json`.
-
-All three were sourced on Sketchfab; public and commercial use was confirmed by Adam Pollock on 27 September 2026.
+One supplied model is embedded as decimated, quantised geometry (no textures or materials). Full details, changes made and licence status are in `assets/manifest.json`.
 
 | Asset | Creator | Licence | Status |
 |---|---|---|---|
-| Free Concept Car 038 | Unity Fan | CC0 | cleared |
-| Timber Frame House | Razny (sketchfab.com/razniak1910) | Sketchfab Standard | cleared |
-| Korean Bakery | Bjarne Stokhof | CC BY 4.0 | cleared; attribution required and shown in the staff panel |
+| Free Concept Car 038 | Unity Fan | CC0 | cleared; public and commercial use confirmed by Adam Pollock, 27 September 2026 |
 
-**Required attribution (CC BY 4.0):** "Korean Bakery" (https://skfb.ly/orTHn) by Bjarne Stokhof is licensed under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/). The geometry was decimated and quantised for this exhibit; no textures are used.
+The Timber Frame House (Razny, Sketchfab Standard) and Korean Bakery (Bjarne Stokhof, CC BY 4.0) models supplied earlier are **not bundled**: the house and the bakery are now drawn procedurally. No attribution for them is required in the shipped file.

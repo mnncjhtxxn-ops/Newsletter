@@ -119,7 +119,8 @@ const el = {
 };
 
 // Labels: one per node, positioned every frame.
-const LABEL_OFFSET = { wind: 120, sun: 78, grid: 64, substation: 110, score: 40, battery: 90, car: 84, home: 96, bakery: 96, street: 76 };
+const LABEL_OFFSET = { wind: 120, sun: 78, grid: 64, substation: 110, score: 40, battery: 112, car: 100, home: 128, bakery: 132, street: 76 };
+const LABEL_REST = { car: 0.55, home: 0.55, bakery: 0.55, battery: 0.5, substation: 0.5, wind: 0.45, sun: 0.3, street: 0.3, grid: 0.25 };
 const labelEls = {};
 for (const id of Object.keys(nodes.byId)) {
   if (id === 'score') continue;
@@ -992,7 +993,9 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     const targetY = landscape ? 0.46 : 0.30;
     cam.yawT = b.yaw + (0.5 - targetX) * hFov;
     cam.pitchT = b.pitch - (0.5 - targetY) * vFov * 0.9;
-    cam.dollyT = b.dist * (landscape ? 0.42 : 0.3);
+    // stop at a viewing distance set per object (bigger objects further), so a projection never fills the frame
+    const view = nodes.get(app.reveal.id).def.view;
+    cam.dollyT = view ? Math.max(0, b.dist - view * (landscape ? 1 : 1.3)) : b.dist * (landscape ? 0.42 : 0.3);
   } else {
     cam.yawT = cam.userYaw + Math.sin(app.t * 0.045) * 0.55 * drift;
     cam.pitchT = cam.userPitch + 0.02 + Math.sin(app.t * 0.031) * 0.03 * drift;
@@ -1066,7 +1069,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     if (showLabels && p.visible && Math.abs(p.x - R.state.width / 2) < R.state.width * 0.6) {
       if (app.mode === 'reveal') op = id === revealId ? 1 : 0.28;
       else if (app.holding || app.scrubbing || app.paused) op = app.holding ? clamp(1.15 - Math.hypot(p.x - ts.x, p.y - ts.y) / 520, 0.3, 1) : 0.9;
-      else op = pending ? 0.75 : 0;
+      else op = pending ? 0.85 : riding ? 0 : LABEL_REST[id] ?? 0.3;
     }
     if (L.op !== op) { L.root.style.opacity = op.toFixed(2); L.op = op; }
     L.root.classList.toggle('pending', pending);

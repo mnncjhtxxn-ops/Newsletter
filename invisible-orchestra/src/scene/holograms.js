@@ -9,7 +9,7 @@ import { assetGeometry } from '../assets/loader.js';
  * dust motes drifting through the projection's field. Still unmistakably
  * made of light — just more substantial than the overview.
  *
- * Everything is procedural geometry: no external assets.
+ * The car is a supplied model; everything else is procedural geometry.
  */
 
 const HOLO_VERT = /* glsl */ `
@@ -48,7 +48,9 @@ void main() {
   vec3 col = mix(uColor, uColorHot, f);
   float a = (0.2 + 0.9 * f) * scan * flicker * uOpacity * rise;
   a += (1.0 - seam) * 0.9 * uOpacity * step(0.001, uBuild) * step(uBuild, 0.999);
-  gl_FragColor = vec4(col * (0.75 + f * 1.2), clamp(a, 0.0, 1.0));
+  // premultiplied: the material blends with MAX, so overlapping faces never stack up to white
+  a = clamp(a, 0.0, 1.0);
+  gl_FragColor = vec4(col * (0.75 + f * 1.2) * a, a);
 }
 `;
 
@@ -68,7 +70,11 @@ function holoMaterial(color, hot) {
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
+    // hard light does not stack: where faces overlap, the brightest wins rather than summing to white
+    blending: THREE.CustomBlending,
+    blendEquation: THREE.MaxEquation,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneFactor,
   });
 }
 
@@ -93,9 +99,77 @@ function fromAsset(name, intensity = 1, dustPad = 0.3) {
 }
 
 const BUILDERS = {
-  car() { return fromAsset('car', 0.75); },
-  house() { return fromAsset('house', 0.16); },
-  bakery() { return fromAsset('bakery', 0.42); },
+  car() { return fromAsset('car', 0.9); },
+  house() {
+    const parts = [];
+    const b = new THREE.BoxGeometry(2.2, 1.8, 1.6); parts.push(b);
+    const r = prism(1.8, 0.65, 2.4); r.rotateY(Math.PI / 2); r.translate(0, 0.9, 0); parts.push(r);
+    const c = new THREE.BoxGeometry(0.28, 0.6, 0.28); c.translate(-0.7, 1.35, -0.25); parts.push(c);
+    const door = new THREE.BoxGeometry(0.45, 0.75, 0.05); door.translate(-0.025, -0.525, 0.81); parts.push(door);
+    for (const [x, y, w, h] of [[0.64, -0.41, 0.48, 0.42], [-0.63, 0.43, 0.46, 0.42], [0.64, 0.43, 0.48, 0.42]]) { const g = new THREE.BoxGeometry(w, h, 0.05); g.translate(x, y, 0.81); parts.push(g); }
+    const hp = new THREE.BoxGeometry(0.5, 0.62, 0.26); hp.translate(1.52, -0.55, 0.25); parts.push(hp);
+    const fan = new THREE.TorusGeometry(0.2, 0.025, 8, 32); fan.translate(1.52, -0.53, 0.39); parts.push(fan);
+    return { parts, y0: -0.9, y1: 1.55, dust: [3.0, 2.6, 1.9], intensity: 0.5 };
+  },
+  bakery() {
+    // many overlapping additive faces: keep the projection translucent
+    const parts = [];
+    const b = new THREE.BoxGeometry(2.6, 2.0, 1.6); parts.push(b);
+    const r = prism(1.8, 0.45, 2.6); r.rotateY(Math.PI / 2); r.translate(0, 1.0, 0); parts.push(r);
+    const aw = new THREE.BoxGeometry(2.55, 0.04, 0.58); aw.rotateX(0.24); aw.translate(0, 0.05, 1.07); parts.push(aw);
+    const win = new THREE.BoxGeometry(1.6, 0.66, 0.05); win.translate(-0.35, -0.42, 0.81); parts.push(win);
+    const door = new THREE.BoxGeometry(0.46, 0.88, 0.05); door.translate(0.85, -0.56, 0.81); parts.push(door);
+    const signBand = new THREE.BoxGeometry(2.4, 0.3, 0.05); signBand.translate(0, 0.35, 0.81); parts.push(signBand);
+    for (const x of [-0.65, 0.65]) { const w = new THREE.BoxGeometry(0.5, 0.3, 0.05); w.translate(x, 0.75, 0.81); parts.push(w); }
+    const ch = new THREE.BoxGeometry(0.3, 0.5, 0.3); ch.translate(0.8, 1.25, -0.3); parts.push(ch);
+    return { parts, y0: -1.0, y1: 1.5, dust: [2.9, 2.8, 2.0], intensity: 0.55 };
+  },
+  carProcedural() {
+    const parts = [];
+    // Side profile of a compact hatchback (x = length, y = height), extruded across the width with a soft bevel.
+    const p = new THREE.Shape();
+    p.moveTo(-1.22, -0.36);
+    p.lineTo(-1.24, -0.05);
+    p.quadraticCurveTo(-1.24, 0.12, -1.1, 0.16);   // tailgate
+    p.quadraticCurveTo(-0.9, 0.22, -0.62, 0.62);  // rear glass
+    p.quadraticCurveTo(-0.5, 0.7, -0.3, 0.7);     // roof
+    p.lineTo(0.35, 0.7);
+    p.quadraticCurveTo(0.6, 0.68, 0.9, 0.3);      // windscreen
+    p.quadraticCurveTo(1.05, 0.2, 1.22, 0.14);    // bonnet
+    p.quadraticCurveTo(1.28, 0.05, 1.26, -0.1);   // nose
+    p.lineTo(1.24, -0.36);
+    p.quadraticCurveTo(1.0, -0.4, 0.98, -0.36);
+    p.absarc(0.78, -0.36, 0.27, 0, Math.PI, true);  // front wheel arch
+    p.lineTo(-0.51, -0.36);
+    p.absarc(-0.78, -0.36, 0.27, 0, Math.PI, true); // rear wheel arch
+    p.lineTo(-1.22, -0.36);
+    const body = new THREE.ExtrudeGeometry(p, { depth: 0.98, bevelEnabled: true, bevelThickness: 0.06, bevelSize: 0.06, bevelSegments: 3, curveSegments: 12 });
+    body.translate(0, 0, -0.49); parts.push(body);
+    // glazing outlines as thin shells so the edges read
+    const glass = new THREE.Shape();
+    glass.moveTo(-0.58, 0.24); glass.quadraticCurveTo(-0.5, 0.6, -0.28, 0.63); glass.lineTo(0.33, 0.63); glass.quadraticCurveTo(0.55, 0.6, 0.82, 0.26); glass.lineTo(-0.58, 0.24);
+    const g = new THREE.ExtrudeGeometry(glass, { depth: 1.02, bevelEnabled: false, curveSegments: 10 }); g.translate(0, 0, -0.51); parts.push(g);
+    for (const x of [-0.78, 0.78]) for (const z of [0.52, -0.52]) {
+      const w = new THREE.CylinderGeometry(0.25, 0.25, 0.16, 28); w.rotateX(Math.PI / 2); w.translate(x, -0.36, z); parts.push(w);
+      const hub = new THREE.CylinderGeometry(0.1, 0.1, 0.18, 12); hub.rotateX(Math.PI / 2); hub.translate(x, -0.36, z); parts.push(hub);
+    }
+    const port = new THREE.CylinderGeometry(0.07, 0.07, 0.05, 14); port.rotateX(Math.PI / 2); port.translate(-1.0, 0.06, 0.53); parts.push(port);
+    for (const z of [0.34, -0.34]) { const l = new THREE.BoxGeometry(0.06, 0.09, 0.22); l.translate(1.24, 0.0, z); parts.push(l); }
+    return { parts, y0: -0.62, y1: 0.76, dust: [2.5, 1.4, 1.1] };
+  },
+  bakery() {
+    // many overlapping additive faces: keep the projection translucent
+    const parts = [];
+    const b = new THREE.BoxGeometry(2.6, 2.0, 1.6); parts.push(b);
+    const r = prism(1.8, 0.45, 2.6); r.rotateY(Math.PI / 2); r.translate(0, 1.0, 0); parts.push(r);
+    const aw = new THREE.BoxGeometry(2.55, 0.04, 0.58); aw.rotateX(0.24); aw.translate(0, 0.05, 1.07); parts.push(aw);
+    const win = new THREE.BoxGeometry(1.6, 0.66, 0.05); win.translate(-0.35, -0.42, 0.81); parts.push(win);
+    const door = new THREE.BoxGeometry(0.46, 0.88, 0.05); door.translate(0.85, -0.56, 0.81); parts.push(door);
+    const signBand = new THREE.BoxGeometry(2.4, 0.3, 0.05); signBand.translate(0, 0.35, 0.81); parts.push(signBand);
+    for (const x of [-0.65, 0.65]) { const w = new THREE.BoxGeometry(0.5, 0.3, 0.05); w.translate(x, 0.75, 0.81); parts.push(w); }
+    const ch = new THREE.BoxGeometry(0.3, 0.5, 0.3); ch.translate(0.8, 1.25, -0.3); parts.push(ch);
+    return { parts, y0: -1.0, y1: 1.5, dust: [2.9, 2.8, 2.0], intensity: 0.55 };
+  },
   carProcedural() {
     const parts = [];
     // Side profile of a compact hatchback (x = length, y = height), extruded across the width with a soft bevel.
@@ -138,20 +212,15 @@ const BUILDERS = {
     const door = new THREE.BoxGeometry(0.3, 0.6, 0.04); door.translate(0.35, -0.7, 0.81); parts.push(door);
     return { parts, y0: -1.0, y1: 1.3, dust: [1.9, 2.2, 1.7] };
   },
-  bakeryProcedural() {
-    const parts = [];
-    const b = new THREE.BoxGeometry(2.6, 1.5, 1.6); b.translate(0, -0.25, 0); parts.push(b);
-    const aw = new THREE.BoxGeometry(2.7, 0.06, 0.5); aw.translate(0, 0.2, 1.0); parts.push(aw);
-    const win = new THREE.BoxGeometry(2.0, 0.75, 0.04); win.translate(0, -0.48, 0.81); parts.push(win);
-    const ch = new THREE.BoxGeometry(0.3, 0.7, 0.3); ch.translate(0.8, 0.85, -0.4); parts.push(ch);
-    return { parts, y0: -1.0, y1: 1.2, dust: [2.6, 2.1, 1.7] };
-  },
   battery() {
     const parts = [];
-    const c = new THREE.CylinderGeometry(0.55, 0.55, 1.8, 40); parts.push(c);
-    const cap = new THREE.CylinderGeometry(0.2, 0.2, 0.15, 24); cap.translate(0, 0.98, 0); parts.push(cap);
-    const core = new THREE.CylinderGeometry(0.34, 0.34, 1.5, 24); parts.push(core);
-    return { parts, y0: -0.9, y1: 1.05, dust: [1.2, 2.0, 1.2] };
+    const slab = new THREE.BoxGeometry(1.0, 1.9, 0.28); parts.push(slab);
+    const panel = new THREE.BoxGeometry(0.8, 1.64, 0.03); panel.translate(0, 0, 0.15); parts.push(panel);
+    const bolt = new THREE.Shape();
+    bolt.moveTo(-0.12, 0.5); bolt.lineTo(-0.4, 0.02); bolt.lineTo(-0.2, 0.02); bolt.lineTo(-0.34, -0.5); bolt.lineTo(-0.02, 0.1); bolt.lineTo(-0.22, 0.1); bolt.lineTo(-0.12, 0.5);
+    const bg = new THREE.ExtrudeGeometry(bolt, { depth: 0.04, bevelEnabled: false }); bg.translate(0, 0, 0.165); parts.push(bg);
+    for (let k = 0; k < 6; k++) { const bar = new THREE.BoxGeometry(0.28, 0.16, 0.03); bar.translate(0.21, -0.53 + k * 0.245, 0.17); parts.push(bar); }
+    return { parts, y0: -0.95, y1: 0.95, dust: [1.4, 2.2, 1.0], intensity: 0.9 };
   },
   turbine() {
     const parts = [];
