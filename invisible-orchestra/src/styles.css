@@ -133,14 +133,8 @@ button { cursor: pointer; }
 #lessons .note { margin-top: 14px; font-size: 12px; color: var(--ink-faint); }
 .x { background: none; border: none; color: var(--ink-dim); font-size: 26px; line-height: 1; padding: 4px 8px; }
 
-/* The score */
-#score { pointer-events: auto !important; position: absolute; left: 24px; right: 24px; bottom: 18px; height: 132px; opacity: 0; transition: opacity 0.8s, height 0.4s; }
-#score.show { opacity: 1; }
-#score canvas { width: 100%; height: 100%; display: block; }
-#score .hint { position: absolute; left: 6px; top: -18px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-faint); }
-
 /* Controls */
-#controls { position: absolute; right: 24px; bottom: 166px; display: flex; gap: 10px; align-items: center; opacity: 0; transition: opacity 0.8s; }
+#controls { position: absolute; right: 24px; bottom: 26px; display: flex; gap: 10px; align-items: center; opacity: 0; transition: opacity 0.8s; }
 #controls.show { opacity: 1; }
 #controls > * { pointer-events: auto; }
 #controls .round { width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(10, 14, 28, 0.6); color: var(--ink-dim); display: grid; place-items: center; backdrop-filter: blur(10px); }
@@ -181,8 +175,7 @@ button { cursor: pointer; }
   #clock { left: 18px; top: 16px; }
   #clock .sub { max-width: 70vw; font-size: 13px; }
   #promise { display: none; }
-  #score { left: 12px; right: 12px; height: 108px; bottom: 12px; }
-  #controls { right: 14px; bottom: 132px; }
+  #controls { right: 14px; bottom: 18px; }
   #toast ul { grid-template-columns: 1fr; }
   #attract { top: 28%; }
 }
@@ -216,17 +209,17 @@ button { cursor: pointer; }
 #controls .chip.why { color: #ffd166; border-color: rgba(255, 209, 102, 0.45); }
 @media (max-aspect-ratio: 1/1), (max-width: 760px) {
   /* portrait: everything a visitor must touch lives in the lower band */
-  #cards { top: auto; bottom: 190px; left: 16px; right: 16px; width: auto; max-height: 48vh; overflow-y: auto; }
-  #toast { top: auto; bottom: 190px; }
+  #cards { top: auto; bottom: 84px; left: 16px; right: 16px; width: auto; max-height: 48vh; overflow-y: auto; }
+  #toast { top: auto; bottom: 84px; }
   #controls { flex-wrap: wrap; justify-content: flex-end; max-width: 92vw; }
 }
 #staff .credits { font-size: 10px; line-height: 1.4; color: var(--ink-faint); border-top: 1px solid var(--card-border); padding-top: 8px; }
 
 #hours div { position: absolute; transform: translate(-50%, -50%); font-size: 12px; letter-spacing: 0.14em; color: var(--ink-faint); opacity: 0; transition: opacity 0.4s; white-space: nowrap; }
-#hint { position: absolute; left: 50%; bottom: 176px; transform: translateX(-50%); display: flex; gap: 22px; padding: 12px 20px; border-radius: 22px; background: var(--card); border: 1px solid var(--card-border); backdrop-filter: blur(12px); font-size: 14px; color: var(--ink-dim); white-space: nowrap; animation: toastIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
+#hint { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; gap: 22px; padding: 12px 20px; border-radius: 22px; background: var(--card); border: 1px solid var(--card-border); backdrop-filter: blur(12px); font-size: 14px; color: var(--ink-dim); white-space: nowrap; animation: toastIn 0.5s cubic-bezier(0.2, 0.8, 0.2, 1); }
 #hint b { color: var(--info); font-weight: 600; }
 #hint.fade { opacity: 0; transition: opacity 1s; }
-@media (max-aspect-ratio: 1/1), (max-width: 760px) { #hint { flex-direction: column; gap: 6px; bottom: 150px; font-size: 13px; } }
+@media (max-aspect-ratio: 1/1), (max-width: 760px) { #hint { flex-direction: column; gap: 6px; bottom: 84px; font-size: 13px; } }
 
 /* Guided first minute: one prompt at a time, anchored to a real object */
 #guide { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); text-align: center; pointer-events: none; will-change: transform; transition: opacity 0.5s; z-index: 2; }
@@ -248,3 +241,6 @@ button { cursor: pointer; }
 #panel .guidenote .step { display: block; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--info); margin-bottom: 4px; }
 @media (max-aspect-ratio: 1/1), (max-width: 760px) { #guide .text b { font-size: 24px; } #guide .beacon { width: 130px; height: 130px; } }
 @media (prefers-reduced-motion: reduce) { #guide .beacon, #guide .beacon::after { animation: none; opacity: 0.8; } }
+
+#tiers div { position: absolute; left: 0; top: 0; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; opacity: 0; transition: opacity 0.3s; text-shadow: 0 0 10px rgba(0, 0, 0, 0.9); will-change: transform; }
+#tiers .car { color: #9fe0ff; } #tiers .home { color: #ffcf9a; } #tiers .bakery { color: #ffbca8; } #tiers .battery { color: #c9adff; } #tiers .substation { color: #d3dcff; }

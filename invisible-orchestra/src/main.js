@@ -13,7 +13,6 @@ import { Field } from './scene/field.js';
 import { DayRing } from './scene/dayring.js';
 import { Environment } from './scene/environment.js';
 import { Touch } from './scene/touch.js';
-import { Score } from './ui/score.js';
 import { Orchestra } from './ui/audio.js';
 
 const $ = (s) => document.querySelector(s);
@@ -66,8 +65,8 @@ const field = new Field(R.scene, prof().fieldStrands, Math.round(prof().ambientP
 const dayring = new DayRing(R.scene);
 const env = new Environment(R.scene, { reflection: prof().reflection, reflectionSize: prof().reflectionSize });
 env.attach(nodes, dayring.hourMarks());
+dayring.attach(nodes);
 const touch = new Touch(canvas);
-const score = new Score($('#scoreCanvas'), {});
 const audio = new Orchestra();
 
 /* The viewer stands at the centre of the sculpture. The camera has a yaw
@@ -113,7 +112,7 @@ const app = {
 const el = {
   attract: $('#attract'), clock: $('#clock'), clockTime: $('#clock .time'), clockSub: $('#clock .sub'), promise: $('#promise'),
   labels: $('#labels'), captions: $('#captions'), cards: $('#cards'), panel: $('#panel'), toast: $('#toast'), lessons: $('#lessons'),
-  score: $('#score'), controls: $('#controls'), chipChanged: $('#chipChanged'), chipLessons: $('#chipLessons'),
+  tiers: $('#tiers'), controls: $('#controls'), chipChanged: $('#chipChanged'), chipLessons: $('#chipLessons'),
   btnPause: $('#btnPause'), btnSound: $('#btnSound'), btnHome: $('#btnHome'), idle: $('#idle'), staff: $('#staff'), corner: $('#corner'),
   guide: $('#guide'),
 };
@@ -158,7 +157,6 @@ function accept(input, sim, { replay = false } = {}) {
   app.pending = null;
   app.prevSim = app.sim;
   app.sim = sim;
-  score.setSim(app.sim, replay ? app.prevSim : null);
   dayring.setSim(app.sim);
   renderCards();
   renderPromise();
@@ -634,7 +632,6 @@ function showHint() {
 /* ------------------------------------------------------------------ */
 function showUI(show) {
   el.clock.classList.toggle('show', show);
-  el.score.classList.toggle('show', show);
   el.controls.classList.toggle('show', show);
   el.promise.classList.toggle('hidden', !show);
   el.cards.classList.toggle('hidden', !show);
@@ -655,8 +652,8 @@ function resetToAttract() {
   app.lastDeclined = false;
   app.prevSim = null;
   app.sim = plan(app.input);
-  score.setSim(app.sim, null);
   dayring.setSim(app.sim);
+  dayring.setGhost(null);
   renderCards(); renderPromise();
   app.slotF = 0; app.decisionCursor = 0; app.replays = 0; app.paused = false; app.timeScale = 1;
   app.reveal = { id: null, pull: 0, dirty: false, condense: 0 };
@@ -735,11 +732,12 @@ touch.on('pullend', ({ node, progress }) => {
   if (progress > 0.3) { el.panel.classList.add('open'); el.panel.style.setProperty('--pull', 1); app.reveal.pull = 1; }
   else closeReveal();
 });
-touch.on('tap', ({ node }) => {
+touch.on('tap', ({ x, y, node }) => {
   app.holding = false;
   if (app.looked) { app.looked = false; return; }
-  if (app.mode === 'reveal') { if (node && node !== app.reveal.id) openReveal(node); return; }
-  if (node) openReveal(node);
+  const target = node || (app.mode !== 'attract' ? dayring.nearest(R.camera, R.state.width, R.state.height, x, y) : null);
+  if (app.mode === 'reveal') { if (target && target !== app.reveal.id) openReveal(target); return; }
+  if (target) openReveal(target);
 });
 touch.on('up', () => {
   app.holding = false;
@@ -747,15 +745,6 @@ touch.on('up', () => {
   setTimeout(() => { app.looked = false; }, 50);
   app.touch.targetStrength = 0;
   if (app.mode !== 'reveal' && !app.paused) { setTimeout(() => { if (!app.holding && app.mode !== 'reveal' && !app.paused && !app.pending) { app.timeScale = 1; audio.setFrozen(false); } }, 700); }
-});
-
-/* Score strip: tap a stave → reveal; drag → scrub time */
-Object.assign(score.h, {
-  onTouch: () => { noteInput(); leaveAttract(); },
-  onScrubStart: () => { app.timeScale = 0; app.scrubbing = true; },
-  onScrub: (slot) => { app.slotF = slot; syncCursor(); },
-  onScrubEnd: () => { app.scrubbing = false; if (app.mode !== 'reveal' && !app.paused && !app.pending) app.timeScale = 1; },
-  onTapRow: (id) => { if (app.mode === 'reveal' && app.reveal.id === id) return; openReveal(id); },
 });
 
 /* Panel buttons */
@@ -803,7 +792,6 @@ el.staff.querySelectorAll('select').forEach((s) => s.addEventListener('change', 
 el.staff.querySelector('.x').addEventListener('click', () => el.staff.classList.add('hidden'));
 el.staff.querySelector('.reset').addEventListener('click', () => resetToAttract());
 el.staff.addEventListener('pointerdown', (e) => { e.stopPropagation(); noteInput(); });
-window.addEventListener('resize', () => score.resize());
 window.addEventListener('keydown', (e) => { if (e.key === ' ') el.btnPause.click(); if (e.key === 'Escape') { if (app.mode === 'reveal') closeReveal(); else if (!el.staff.classList.contains('hidden')) el.staff.classList.add('hidden'); } });
 
 /* ------------------------------------------------------------------ */
@@ -841,7 +829,7 @@ window.addEventListener('pointerdown', wake, { capture: true, passive: true });
 window.addEventListener('pointermove', (e) => { if (e.buttons) wake(); }, { capture: true, passive: true });
 window.addEventListener('pointerup', wake, { capture: true, passive: true });
 window.addEventListener('keydown', wake, { capture: true });
-window.addEventListener('resize', () => { score.resize(); wake(); });
+window.addEventListener('resize', () => wake());
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { gov.setMode('HIDDEN'); audio.setFrozen(true); }
   else { wake(); }
@@ -965,7 +953,8 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   for (const k2 in E) E[k2].update(dtRaw, app.timeScaleCur, { dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
   for (const k2 in ribbons.info) ribbons.info[k2].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k2 === revealId ? 1 : 0.25) : 0.7) : 0.08 });
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
-  dayring.update(dtRaw, app.slotF, visualTime);
+  const ringAct = { car: f.evKw / 7, home: f.heatKw / 3, bakery: f.bakeryKw / 38, battery: Math.abs(f.batteryKw) / 5, substation: 0 };
+  dayring.update(dtRaw, app.slotF, visualTime, frozen ? {} : ringAct, app.mode === 'replay');
   dayring.setDim(revealId ? 0.45 : app.mode === 'attract' ? 0.7 : 1);
   env.update(dtRaw, visualTime, camPos, {
     car: f.evKw > 0 ? 1 : 0.25, home: f.heatKw > 0 ? 0.9 : 0.3, bakery: f.bakeryKw > 8 ? 1 : 0.3, battery: Math.abs(f.batteryKw) > 0 ? 1 : 0.3,
@@ -1042,6 +1031,19 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
       }
     } else if (def && g.anchor) el.guide.classList.add('hidden');
   }
+  {
+    // tier labels ride the playhead: each arc names itself where it is lit right now
+    const beads = dayring.playheadBeads(app.slotF);
+    const ts2 = el.tiers.children;
+    const tmp = new THREE.Vector3();
+    beads.forEach((b, i) => {
+      tmp.copy(b.pos).project(R.camera);
+      const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.05 && Math.abs(tmp.y) < 1.05 && app.mode !== 'attract' && b.on && !revealId;
+      const op = vis ? 0.45 + 0.55 * b.activity : 0;
+      if (ts2[i].dataset.op !== op.toFixed(2)) { ts2[i].style.opacity = op.toFixed(2); ts2[i].dataset.op = op.toFixed(2); }
+      if (vis) ts2[i].style.transform = `translate(${((tmp.x * 0.5 + 0.5) * R.state.width).toFixed(1)}px, ${((-tmp.y * 0.5 + 0.5) * R.state.height).toFixed(1)}px) translate(16px, -50%)`;
+    });
+  }
   $('#chipWhy').classList.toggle('hidden', app.mode === 'attract' || app.mode === 'reveal' || !!app.pending);
   if (app.mode !== 'attract' && (textNow || frozen)) {
     const h = slotHour(app.slotF) % 24;
@@ -1051,7 +1053,6 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     const sub = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${app.pending ? ' · <b class="pend">waiting for your answer</b>' : frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
     if (sub !== el.clockSub.innerHTML) el.clockSub.innerHTML = sub;
   }
-  if (app.mode !== 'attract') score.draw(app.slotF, { revealId, dimmed: false });
 
   // settled? (camera, condense, ripple, time scale and captions all at rest)
   if (Math.abs(ts.strength - ripTarget) < 0.01) ts.strength = ripTarget;
