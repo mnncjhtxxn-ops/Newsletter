@@ -12,6 +12,8 @@
 - The car, home and bakery use supplied 3D models (decimated to 24k–50k triangles, geometry only) for both the ambient light-form and the projection; the turbine and battery remain procedural. The house is a dense timber-frame model whose many small parts resist decimation below ~50k triangles.
 - Licences: all three models are from Sketchfab with public and commercial use confirmed (see `assets/manifest.json`). The bakery is CC BY 4.0 and its attribution is shown in the staff panel and in THIRD-PARTY-NOTICES.md.
 - Projections are additive translucent double-sided meshes; on weak GPUs they are the most expensive thing on screen. Only one is ever visible at a time.
+- The mirror floor is a second full render of the scene per frame (Balanced 1024², Detail 1536²). It is the most expensive element on screen after the projection and is untested on exhibition hardware; Economy turns it off. The decorative landscape, pillars and bokeh push the visible point count above the v1.1 800-particle cap (see `docs/PERFORMANCE.md`).
+- The landscape is a hint (dim hills and spires), not a place; there is no horizon geometry, sky or terrain, and the ceiling pool is a flat shader disc.
 - Only one scenario exists (Larkfield Street). Presets for a business day or a fleet are not built.
 - Sound is a small synthesised layer with no authored composition.
 

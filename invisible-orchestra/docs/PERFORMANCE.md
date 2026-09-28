@@ -29,13 +29,23 @@ The cap is a deadline check inside the rAF chain (unit-tested at 60, 120 and 144
 
 Profiles from `scenarios/QUALITY_PROFILES_v1.1.json`. The drawing buffer is fitted with `fitDrawingBuffer` (devicePixelRatio applied exactly once, capped at 1.5) and resized only on window or profile change. HTML text and controls stay at native CSS resolution.
 
-| Profile | Max pixels | Ambient / active | Ambient particles |
-|---|---:|---|---:|
-| Economy | 1,440,000 | 30 / 30 | 300 |
-| Balanced (default) | 2,073,600 | 30 / 60 | 800 |
-| Detail | 3,686,400 | 30 / 60 | 800 |
+| Profile | Max pixels | Ambient / active | Ambient particles | Mirror floor |
+|---|---:|---|---:|---|
+| Economy | 1,440,000 | 30 / 30 | 300 | off (flat dark floor) |
+| Balanced (default) | 2,073,600 | 30 / 60 | 800 | 1024² reflection |
+| Detail | 3,686,400 | 30 / 60 | 800 | 1536² reflection |
 
 Verified: a 1080×1920 CSS viewport at DPR 2 renders at 1080×1920 (2,073,600 px) in Balanced, not 2160×3840.
+
+## The environment pass (deviation from the v1.1 particle cap)
+
+The room around the sculpture (mirror floor, ceiling pool, per-object ripple pools, light pillars, hinted landscape, foreground bokeh) was added after the v1.1 low-load contract was written and is **not** counted by the "ambient particles" column above:
+
+- The mirror floor renders the whole scene a second time into a 1024² (Balanced) or 1536² (Detail) texture every frame it draws. On a 1080×1920 kiosk that is roughly a 50 % increase in fill work in Balanced. Economy disables it entirely.
+- The landscape is about 2,200 dim hill points plus 40 spires, the pillar field is 34 ambient beams plus one per participant and hour mark, and the bokeh layer is 22 sprites. These are static GPU buffers animated in their vertex shaders; they add draw calls but no per-frame JavaScript.
+- Per-frame JavaScript for the environment is a handful of uniform writes.
+
+This exceeds the 800-particle ambient cap in Balanced/Detail when the decorative points are counted. It is documented rather than hidden so that hardware profiling can decide whether to keep it. If the real kiosk cannot hold 30 fps in Balanced, the first two things to remove are the reflection (set `reflection: false` in `src/scene/governor.js` PROFILES) and the landscape points.
 
 ## What is not implemented
 

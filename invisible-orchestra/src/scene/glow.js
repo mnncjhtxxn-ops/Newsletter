@@ -28,12 +28,14 @@ uniform float uTouchStrength;
 uniform float uBreath;
 uniform float uSpread;
 uniform float uHalo;
+uniform float uMaxSize;
 attribute float aPhase;
 attribute float aSize;
 attribute float aFill;
 varying float vTwinkle;
 varying float vFill;
 varying float vNear;
+varying float vFog;
 void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
   // Breathing: a slow, tiny drift so the object feels alive.
@@ -49,7 +51,9 @@ void main() {
   vec4 mv = viewMatrix * world;
   gl_Position = projectionMatrix * mv;
   // clamp so a strand passing close to the viewer never balloons into a blob
-  gl_PointSize = min(aSize * uSize * uPixelRatio * (220.0 / max(1.0, -mv.z)), 26.0 * uPixelRatio) * mix(1.0, 3.8, uHalo);
+  gl_PointSize = min(aSize * uSize * uPixelRatio * (220.0 / max(1.0, -mv.z)), uMaxSize * uPixelRatio) * mix(1.0, 3.8, uHalo);
+  // atmosphere: light far from the viewer fades into the dark
+  vFog = exp(-max(0.0, -mv.z - 9.0) * 0.03);
   vTwinkle = 0.55 + 0.45 * sin(uTime * 1.7 + aPhase * 12.566);
   vFill = aFill;
 }
@@ -64,6 +68,7 @@ uniform float uActivity;
 uniform float uFillLevel;
 uniform float uHalo;
 varying float vTwinkle;
+varying float vFog;
 varying float vFill;
 varying float vNear;
 void main() {
@@ -71,7 +76,7 @@ void main() {
   float filled = step(vFill, uFillLevel);
   vec3 col = mix(uColor, uColorHot, uActivity * 0.85);
   float a = t.a * uOpacity * (0.35 + 0.65 * vTwinkle) * (0.35 + 0.65 * filled) * (0.55 + 0.45 * uActivity + vNear * 0.6);
-  a *= mix(1.0, 0.05 + 0.05 * uActivity, uHalo);
+  a *= mix(1.0, 0.05 + 0.05 * uActivity, uHalo) * vFog;
   gl_FragColor = vec4(col * (0.6 + 0.45 * uActivity + vNear * 0.5), a);
 }
 `;
@@ -96,6 +101,7 @@ export function pointsMaterial({ color, colorHot, size = 1, opacity = 1 }) {
       uActivity: { value: 0.3 },
       uFillLevel: { value: 1 },
       uHalo: { value: 0 },
+      uMaxSize: { value: 26 },
     },
     vertexShader: VERT,
     fragmentShader: FRAG,

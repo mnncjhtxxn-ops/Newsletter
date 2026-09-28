@@ -11,6 +11,7 @@ import { Nodes } from './scene/nodes.js';
 import { buildRibbons } from './scene/ribbons.js';
 import { Field } from './scene/field.js';
 import { DayRing } from './scene/dayring.js';
+import { Environment } from './scene/environment.js';
 import { Touch } from './scene/touch.js';
 import { Score } from './ui/score.js';
 import { Orchestra } from './ui/audio.js';
@@ -63,6 +64,8 @@ for (const k in ribbons.info) R.scene.add(ribbons.info[k].points);
 const prof = () => PROFILES[settings.profile];
 const field = new Field(R.scene, prof().fieldStrands, Math.round(prof().ambientParticles / prof().fieldStrands));
 const dayring = new DayRing(R.scene);
+const env = new Environment(R.scene, { reflection: prof().reflection, reflectionSize: prof().reflectionSize });
+env.attach(nodes, dayring.hourMarks());
 const touch = new Touch(canvas);
 const score = new Score($('#scoreCanvas'), {});
 const audio = new Orchestra();
@@ -827,7 +830,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   if (inReveal) ts.world.lerp(nodes.get(app.reveal.id).world, k);
 
   // choreography gate: the day restarts once the slots have flown
-  if (app.choreoUntil && performance.now() >= app.choreoUntil) { app.choreoUntil = 0; if (!app.paused && !app.pending && app.mode !== 'reveal') app.timeScale = 1; }
+  if (app.choreoUntil && performance.now() >= app.choreoUntil && (!dayring.choreo || performance.now() >= app.choreoUntil + 4000)) { app.choreoUntil = 0; if (!app.paused && !app.pending && app.mode !== 'reveal') app.timeScale = 1; }
 
   // camera: standing at the centre, looking around
   const drift = frozen || reducedMotion ? 0 : 1;
@@ -886,6 +889,10 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
   dayring.update(dtRaw, app.slotF, visualTime);
   dayring.setDim(revealId ? 0.45 : app.mode === 'attract' ? 0.7 : 1);
+  env.update(dtRaw, visualTime, camPos, {
+    car: f.evKw > 0 ? 1 : 0.25, home: f.heatKw > 0 ? 0.9 : 0.3, bakery: f.bakeryKw > 8 ? 1 : 0.3, battery: Math.abs(f.batteryKw) > 0 ? 1 : 0.3,
+    substation: 0.3 + 0.7 * Math.min(1, f.cableFrac), wind: 0.2 + 0.8 * f.windFrac, street: 0.3 + 0.7 * f.streetFrac,
+  }, revealId ? 0.55 : 1);
   R.render();
 
   // audio follows activity
@@ -984,5 +991,5 @@ setInterval(() => {
 }, 1000);
 
 // Expose a tiny inspection hook for testing on the station (no UI).
-window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam };
+window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam, env };
 window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons;

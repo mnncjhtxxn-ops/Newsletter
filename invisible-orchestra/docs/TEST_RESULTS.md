@@ -37,6 +37,8 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | V08 | Reduced motion / audio off | PASS | `prefers-reduced-motion` removes camera drift and damps the ripple; sound is off by default and never carries meaning |
 | V09 | Portrait hardware reach | PARTIAL | portrait layout puts cards, controls and the score in the lower band; physical reach on a mounted 55-inch screen **BLOCKED** (no hardware) |
 | V10 | Rapid interaction cannot strand the app | PASS | 60 automated cycles with cancelled interactions, resets mid-transition, no errors |
+| V11 | Window resize / orientation change (e.g. browser going fullscreen on the kiosk) | PASS | landscape → portrait → landscape in headless Chromium: canvas CSS and buffer sizes follow the window, no errors. A bug found in this pass (inline canvas sizes pinned the old size) is fixed |
+| V12 | Environment: mirror floor, pools, pillars, landscape, bokeh | PASS as built / **awaiting your visual sign-off** | screenshots in the session; reflection off in Economy; cost not measured on hardware (see PERFORMANCE.md) |
 
 ## Operational tests (spec §12)
 

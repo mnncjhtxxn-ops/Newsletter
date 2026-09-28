@@ -29,6 +29,12 @@ The viewer stands at the centre of the sculpture. Objects surround you at differ
 
 At overview scale every object is a cloud of light. When you pull one forward, its particles coalesce into a **hard-light projection**: solid translucent surfaces with bright edges, a faint scanline shimmer, an emitter ring beneath, and tiny dust motes drifting through the field. It is more substantial than the overview, and still unmistakably made of light. Release it and it dissolves back into the strands. The car, home and bakery come from supplied 3D models prepared by `tools/prepare-assets.py` (Blender's Python module: join, drop ground planes, decimate, normalise, quantise to int16) and embedded as compact geometry; the same mesh feeds the ambient point cloud (surface and crease-edge samples) and the projection, so the object that resolves is the one the visitor saw. The turbine and battery are procedural. Licence status per asset is in `assets/manifest.json`.
 
+## The room it stands in
+
+The sculpture stands over a dark mirror. The floor is a still, black pool that reflects every object and strand with a slow ripple that fades to nothing in the distance; a second, fainter pool hangs above as a ring of light in the ceiling. Each participant sits on its own ripple pool, and rings of soft light pillars rise from the horizon like the far edge of a landscape, with low hills of dim points and a few spires hinted beyond them. Near the viewer a few large, very faint bokeh discs drift, so the space reads as air rather than vacuum. All of it is decorative and none of it carries data: the pools brighten with a participant's activity, but every fact is still in the strands, the ring and the panel.
+
+The mirror is a real second render of the scene (three.js `Reflector`) and is the one deliberately expensive thing in the picture. Economy turns it off and shows a plain dark floor; Balanced renders it at 1024² and Detail at 1536². See `docs/PERFORMANCE.md`.
+
 ## Why the spectacle has substance
 
 **Every visual change corresponds to something that changed in the simulation.** Ribbon density and speed follow the simulated kilowatts on that link. The car fills as it charges. The house glows with its temperature inside the band. The cable's ring fills towards its limit and turns red when it is breached. Information packets travel only when a decision is made. A ribbon never gets smoother because a "smart" button was pressed.
@@ -128,6 +134,7 @@ the full interaction loop with zero console errors; 60 automated visitor cycles 
 - The drawing buffer is fitted to the profile's pixel budget with devicePixelRatio counted once; HTML stays at native resolution.
 - Planning runs only on a committed change (about 2 ms for the whole day) and never in the frame loop; identical inputs are served from a bounded cache, and permission is re-checked every time.
 - A handful of draw calls, one shared point shader, additive sprites with a procedurally drawn glow and a halo pass instead of post-processing bloom. Only one projection is ever visible.
+- The mirror floor is the largest single cost: it renders the scene a second time into a square texture (1024² Balanced, 1536² Detail) and is off in Economy. Decorative pillars, pools and the landscape are static buffers animated in their shaders, so they add draw calls but no per-frame JavaScript.
 - Reset reuses the scene: no second loop, no duplicate handlers, no re-created geometry.
 
 ## Project layout

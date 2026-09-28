@@ -18,8 +18,11 @@ export function createRenderer(canvas, { profile = 'balanced' } = {}) {
   const state = { profile: PROFILES[profile] ? profile : 'balanced', width: 1, height: 1, pixelRatio: 1, bufferWidth: 1, bufferHeight: 1, camZ: 30 };
 
   function resize() {
-    const w = canvas.clientWidth || window.innerWidth;
-    const h = canvas.clientHeight || window.innerHeight;
+    // The canvas is CSS-sized to the viewport (position: fixed; inset: 0), so the
+    // window is the source of truth. Reading clientWidth back would return whatever
+    // size the previous resize left, which broke landscape → portrait transitions.
+    const w = window.innerWidth || canvas.clientWidth;
+    const h = window.innerHeight || canvas.clientHeight;
     state.width = w;
     state.height = h;
     const fit = fitDrawingBuffer(w, h, window.devicePixelRatio || 1, PROFILES[state.profile]);
@@ -28,8 +31,6 @@ export function createRenderer(canvas, { profile = 'balanced' } = {}) {
     state.bufferHeight = fit.height;
     renderer.setPixelRatio(1);
     renderer.setSize(fit.width, fit.height, false);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
     camera.aspect = w / h;
     // keep the whole constellation in view on narrow screens
     const aspect = w / h;

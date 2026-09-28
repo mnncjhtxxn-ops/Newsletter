@@ -13,9 +13,9 @@
  * loop or timer. Diagnostics get the raw, uncapped frame gap.
  */
 export const PROFILES = {
-  economy: { maxPixels: 1440000, maxDPR: 1.5, rates: { ATTRACT: 30, ACTIVE: 30, READING: 0, PAUSED: 0, HIDDEN: 0 }, ambientParticles: 300, fieldStrands: 4 },
-  balanced: { maxPixels: 2073600, maxDPR: 1.5, rates: { ATTRACT: 30, ACTIVE: 60, READING: 0, PAUSED: 0, HIDDEN: 0 }, ambientParticles: 800, fieldStrands: 8 },
-  detail: { maxPixels: 3686400, maxDPR: 1.5, rates: { ATTRACT: 30, ACTIVE: 60, READING: 0, PAUSED: 0, HIDDEN: 0 }, ambientParticles: 800, fieldStrands: 8 },
+  economy: { maxPixels: 1440000, maxDPR: 1.5, rates: { ATTRACT: 30, ACTIVE: 30, READING: 0, PAUSED: 0, HIDDEN: 0 }, ambientParticles: 300, fieldStrands: 4, reflection: false, reflectionSize: 0 },
+  balanced: { maxPixels: 2073600, maxDPR: 1.5, rates: { ATTRACT: 30, ACTIVE: 60, READING: 0, PAUSED: 0, HIDDEN: 0 }, ambientParticles: 800, fieldStrands: 8, reflection: true, reflectionSize: 1024 },
+  detail: { maxPixels: 3686400, maxDPR: 1.5, rates: { ATTRACT: 30, ACTIVE: 60, READING: 0, PAUSED: 0, HIDDEN: 0 }, ambientParticles: 800, fieldStrands: 8, reflection: true, reflectionSize: 1536 },
 };
 
 export class RenderGovernor {
