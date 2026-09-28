@@ -4,7 +4,7 @@
  * in local units (roughly 1 = 1 metre of sculpture space).
  */
 
-import { sampleSurface, sampleEdges, assetGeometry } from '../assets/loader.js';
+import { sampleSurface, sampleEdges, assetGeometry, silhouetteSegments, samplePolylines } from '../assets/loader.js';
 
 const rnd = (a = 1) => (Math.random() * 2 - 1) * a;
 
@@ -13,10 +13,13 @@ const rnd = (a = 1) => (Math.random() * 2 - 1) * a;
  * a few interior points whose brightness follows the object's state (charge,
  * warmth, oven heat). The same mesh becomes the hard-light projection.
  */
-function fromAsset(name, surfaceCount, interior, edgeShare = 0.6, edgeDeg = 32) {
+function fromAsset(name, surfaceCount, interior, edgeShare = 0.6, edgeDeg = 32, ctx = null) {
   const nEdge = Math.round(surfaceCount * edgeShare);
   const surf = sampleSurface(name, surfaceCount - nEdge, name.length * 7919);
-  const edges = sampleEdges(name, nEdge, edgeDeg);
+  // With a viewing context, draw the real silhouette: visible outline and creases from where the viewer stands.
+  const edges = ctx && ctx.viewDirs && ctx.renderer
+    ? samplePolylines(silhouetteSegments(name, ctx.viewDirs, ctx.renderer, { creaseDeg: edgeDeg }), nEdge, name.length * 131)
+    : sampleEdges(name, nEdge, edgeDeg);
   const bb = assetGeometry(name).boundingBox;
   const a = Array.from(edges).concat(Array.from(surf));
   const n0 = a.length / 3;
@@ -97,9 +100,9 @@ export function turbineBlades() {
   return { positions: Float32Array.from(a) };
 }
 
-export function car() {
-  // surface of the concept car; interior points fill left→right with state of charge
-  return fromAsset('car', 1000, { count: 180, box: [-1.0, -0.3, -0.34, 1.0, 0.25, 0.34], fill: (x) => (x + 1.0) / 2.0 }, 0.7, 30);
+export function car(ctx) {
+  // outline of the concept car; interior points fill left→right with state of charge
+  return fromAsset('car', 1100, { count: 160, box: [-1.0, -0.3, -0.34, 1.0, 0.25, 0.34], fill: (x) => (x + 1.0) / 2.0 }, 0.8, 42, ctx);
 }
 
 export function carProcedural() {
@@ -125,9 +128,9 @@ export function carProcedural() {
   return { positions, fills };
 }
 
-export function house() {
+export function house(ctx) {
   // warmth rises: interior fill follows height
-  return fromAsset('house', 1100, { count: 200, box: [-0.8, -0.6, -1.1, 0.8, 0.3, 1.1], fill: (x, y) => (y + 0.6) / 0.9 }, 0.7, 55);
+  return fromAsset('house', 1200, { count: 180, box: [-0.8, -0.6, -1.1, 0.8, 0.3, 1.1], fill: (x, y) => (y + 0.6) / 0.9 }, 0.8, 62, ctx);
 }
 
 export function houseProcedural() {
@@ -151,8 +154,8 @@ export function houseProcedural() {
   return { positions, fills };
 }
 
-export function bakery() {
-  return fromAsset('bakery', 1100, { count: 200, box: [-0.9, -1.0, -0.7, 0.9, -0.2, 0.7], fill: () => Math.random() }, 0.65, 42);
+export function bakery(ctx) {
+  return fromAsset('bakery', 1200, { count: 180, box: [-0.9, -1.0, -0.7, 0.9, -0.2, 0.7], fill: () => Math.random() }, 0.8, 50, ctx);
 }
 
 export function bakeryProcedural() {

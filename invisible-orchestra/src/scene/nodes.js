@@ -16,15 +16,15 @@ export const NODE_DEFS = [
   { id: 'grid', label: 'The wider grid', pos: ring(180, 24, 10), color: '#8fa3d9', hot: '#dfe7ff', shape: 'grid', scale: 2.0, dim: 0.3, face: 180 },
   { id: 'substation', label: "The street's cable", pos: ring(6, 19, 3.2), color: '#b9c8ff', hot: '#ffffff', shape: 'substation', scale: 0.95, dim: 0.3, size: 0.65, face: 6 },
   { id: 'score', label: 'The orchestra', pos: [0, -3.4, -1.2], color: '#9fe9ff', hot: '#ffffff', shape: 'score', scale: 0.9, info: true, dim: 0.35 },
-  { id: 'battery', label: 'The home battery', pos: ring(-14, 11.5, -2.6), color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 0.8, dim: 0.22, size: 0.5, face: -14 },
-  { id: 'car', label: 'Your car', pos: ring(-40, 12.5, -2.5), color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.35, dim: 0.5, size: 0.42, face: -40 },
-  { id: 'home', label: 'Your home', pos: ring(42, 12.5, -2.3), color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.5, dim: 0.45, size: 0.42, face: 42 },
-  { id: 'bakery', label: 'The bakery', pos: ring(-118, 13.5, -0.8), color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.15, dim: 0.45, size: 0.42, face: -118 },
-  { id: 'street', label: 'The other homes', pos: ring(124, 15, -0.2), color: '#b7a6f2', hot: '#e6dcff', shape: 'street', scale: 1.1, dim: 0.32, face: 124 },
+  { id: 'battery', label: 'The home battery', pos: ring(-14, 11.5, -1.9), color: '#a678ff', hot: '#d9c4ff', shape: 'battery', scale: 0.8, dim: 0.22, size: 0.5, face: -14 },
+  { id: 'car', label: 'Your car', pos: ring(-40, 12.5, -1.4), color: '#5fc8ff', hot: '#d5f4ff', shape: 'car', scale: 1.35, dim: 0.5, size: 0.42, face: -40 },
+  { id: 'home', label: 'Your home', pos: ring(42, 12.5, -1.1), color: '#ffb36b', hot: '#ffe6c2', shape: 'house', scale: 1.5, dim: 0.45, size: 0.42, face: 42 },
+  { id: 'bakery', label: 'The bakery', pos: ring(-118, 13.5, 0.2), color: '#ff9a7a', hot: '#ffd2c0', shape: 'bakery', scale: 1.15, dim: 0.45, size: 0.42, face: -118 },
+  { id: 'street', label: 'The other homes', pos: ring(124, 15, 0.6), color: '#b7a6f2', hot: '#e6dcff', shape: 'street', scale: 1.1, dim: 0.32, face: 124 },
 ];
 
 export class Nodes {
-  constructor(scene) {
+  constructor(scene, renderer = null, eye = new THREE.Vector3(0, 0.4, 0)) {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.byId = {};
@@ -35,7 +35,11 @@ export class Nodes {
       g.scale.setScalar(def.scale);
       if (def.face != null) g.rotation.y = -def.face * Math.PI / 180; // long axis tangential to the ring, front toward the viewer
       const mat = pointsMaterial({ color: def.color, colorHot: def.hot, size: def.size || (def.info ? 0.55 : 0.85), opacity: def.dim || 0.9 });
-      const shape = shapes[def.shape]();
+      // where the viewer sees this object from, in the object's own space (plus a little either side for the drift)
+      g.updateMatrixWorld(true);
+      const eyeLocal = g.worldToLocal(eye.clone()).normalize();
+      const viewDirs = [eyeLocal, eyeLocal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.35), eyeLocal.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.35)];
+      const shape = shapes[def.shape]({ viewDirs, renderer });
       const pts = makePoints(shape.positions, mat, shape.fills);
       g.add(pts);
       const node = { def, group: g, points: pts, mat, extras: {}, activity: 0.3, fill: 1, world: new THREE.Vector3(...def.pos) };

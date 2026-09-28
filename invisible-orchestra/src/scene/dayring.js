@@ -14,11 +14,11 @@ import { SLOTS, slotHour, SCENARIO } from '../sim/scenario.js';
  * midday to the right — so the night unfolds as you look around.
  */
 export const RINGS = [
-  { id: 'car', label: 'your car', r: 8.6, y: -1.5, color: '#5fc8ff', hot: '#d5f4ff', max: 7 },
-  { id: 'home', label: 'your home', r: 9.1, y: -1.65, color: '#ffb36b', hot: '#ffe6c2', max: 3 },
-  { id: 'bakery', label: 'the bakery', r: 9.6, y: -1.8, color: '#ff9a7a', hot: '#ffd2c0', max: 38 },
-  { id: 'battery', label: 'battery', r: 10.1, y: -1.95, color: '#a678ff', hot: '#d9c4ff', max: 5 },
-  { id: 'substation', label: 'the cable', r: 10.6, y: -2.1, color: '#b9c8ff', hot: '#ff5d6c', max: 70 },
+  { id: 'car', label: 'your car', r: 8.6, y: -2.6, color: '#5fc8ff', hot: '#d5f4ff', max: 7 },
+  { id: 'home', label: 'your home', r: 9.1, y: -2.75, color: '#ffb36b', hot: '#ffe6c2', max: 3 },
+  { id: 'bakery', label: 'the bakery', r: 9.6, y: -2.9, color: '#ff9a7a', hot: '#ffd2c0', max: 38 },
+  { id: 'battery', label: 'battery', r: 10.1, y: -3.05, color: '#a678ff', hot: '#d9c4ff', max: 5 },
+  { id: 'substation', label: 'the cable', r: 10.6, y: -3.2, color: '#b9c8ff', hot: '#ff5d6c', max: 70 },
 ];
 
 export function slotAngle(slot) { return Math.PI + (slot / SLOTS) * Math.PI * 2; }
@@ -128,7 +128,7 @@ export class DayRing {
     for (let i = 0; i < this.playN; i++) {
       const t = i / (this.playN - 1);
       const r = 8.4 + t * 2.6;
-      p[i * 3] = Math.sin(a) * r; p[i * 3 + 1] = -1.45 - t * 0.7 + Math.sin(time * 2 + i) * 0.03; p[i * 3 + 2] = -Math.cos(a) * r;
+      p[i * 3] = Math.sin(a) * r; p[i * 3 + 1] = -2.55 - t * 0.7 + Math.sin(time * 2 + i) * 0.03; p[i * 3 + 2] = -Math.cos(a) * r;
     }
     this.play.geometry.getAttribute('position').needsUpdate = true;
     // movers
@@ -155,7 +155,7 @@ export class DayRing {
 
   /** World positions for the hour marks, for HTML labels. */
   hourMarks() {
-    return [18, 0, 6, 12].map((h) => { const slot = ((h - 18 + 24) % 24) * 4; return { label: `${String(h).padStart(2, '0')}:00`, pos: ringPoint({ r: 11.4, y: -2.25 }, slot) }; });
+    return [18, 0, 6, 12].map((h) => { const slot = ((h - 18 + 24) % 24) * 4; return { label: `${String(h).padStart(2, '0')}:00`, pos: ringPoint({ r: 11.4, y: -3.35 }, slot) }; });
   }
 
   setDim(d) { for (const r of this.rings) r.mat.uniforms.uOpacity.value = 0.85 * d; this.playMat.uniforms.uOpacity.value = 0.9 * d; }

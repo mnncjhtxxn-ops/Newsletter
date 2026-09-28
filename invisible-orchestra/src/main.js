@@ -56,7 +56,7 @@ function fatal(title, text) {
 const R = createRenderer(canvas, { profile: settings.profile });
 canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); if (!$('#fatal')) fatal('One moment.', 'The graphics context was interrupted. Recovering…'); });
 canvas.addEventListener('webglcontextrestored', () => { $('#fatal')?.remove(); });
-const nodes = new Nodes(R.scene);
+const nodes = new Nodes(R.scene, R.renderer);
 const ribbons = buildRibbons(nodes);
 for (const k in ribbons.energy) R.scene.add(ribbons.energy[k].points);
 for (const k in ribbons.info) R.scene.add(ribbons.info[k].points);
