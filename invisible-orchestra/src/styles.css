@@ -227,3 +227,24 @@ button { cursor: pointer; }
 #hint b { color: var(--info); font-weight: 600; }
 #hint.fade { opacity: 0; transition: opacity 1s; }
 @media (max-aspect-ratio: 1/1), (max-width: 760px) { #hint { flex-direction: column; gap: 6px; bottom: 150px; font-size: 13px; } }
+
+/* Guided first minute: one prompt at a time, anchored to a real object */
+#guide { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); text-align: center; pointer-events: none; will-change: transform; transition: opacity 0.5s; z-index: 2; }
+#guide .beacon { width: 150px; height: 150px; margin: 0 auto; border-radius: 50%; border: 2px solid rgba(191, 245, 255, 0.9); box-shadow: 0 0 30px rgba(191, 245, 255, 0.45), inset 0 0 30px rgba(191, 245, 255, 0.25); animation: beacon 2.2s ease-out infinite; }
+#guide .beacon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; border: 1px solid rgba(191, 245, 255, 0.5); animation: beacon2 2.2s ease-out infinite; }
+#guide.nobeacon .beacon { display: none; }
+#guide .text { margin-top: 18px; padding: 14px 22px; border-radius: 22px; background: rgba(6, 9, 20, 0.86); border: 1px solid rgba(191, 245, 255, 0.35); backdrop-filter: blur(12px); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); display: inline-block; max-width: min(520px, 88vw); white-space: normal; }
+#guide .text b { display: block; font-size: 26px; font-weight: 500; line-height: 1.2; color: var(--ink); }
+#guide .text span { display: block; margin-top: 4px; font-size: 15px; color: var(--ink-dim); }
+#guide .text span:empty { display: none; }
+#guide .step { display: inline-block; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--info); margin-bottom: 6px; }
+@keyframes beacon { 0% { transform: scale(0.75); opacity: 0.2; } 40% { opacity: 1; } 100% { transform: scale(1.15); opacity: 0.35; } }
+@keyframes beacon2 { 0% { transform: scale(0.6); opacity: 0; } 50% { opacity: 0.8; } 100% { transform: scale(1.6); opacity: 0; } }
+#guide.edge { transform: translate(-50%, -50%); }
+#guide.edge .beacon { display: none; }
+#guide.edge .text::before { content: "◀"; display: block; font-size: 22px; color: var(--info); margin-bottom: 4px; }
+#guide.edge.right .text::before { content: "▶"; }
+#panel .guidenote { font-size: 15px; color: var(--ink); background: rgba(191, 245, 255, 0.08); border: 1px solid rgba(191, 245, 255, 0.45); border-radius: 12px; padding: 10px 12px; }
+#panel .guidenote .step { display: block; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--info); margin-bottom: 4px; }
+@media (max-aspect-ratio: 1/1), (max-width: 760px) { #guide .text b { font-size: 24px; } #guide .beacon { width: 130px; height: 130px; } }
+@media (prefers-reduced-motion: reduce) { #guide .beacon, #guide .beacon::after { animation: none; opacity: 0.8; } }

@@ -104,6 +104,7 @@ const app = {
   lastInput: performance.now(),
   idleShown: false,
   replays: 0,
+  guide: { step: 0, since: 0, lastReveal: null },
   lessonsAuto: false,
   t: 0,
   fps: 60,
@@ -114,6 +115,7 @@ const el = {
   labels: $('#labels'), captions: $('#captions'), cards: $('#cards'), panel: $('#panel'), toast: $('#toast'), lessons: $('#lessons'),
   score: $('#score'), controls: $('#controls'), chipChanged: $('#chipChanged'), chipLessons: $('#chipLessons'),
   btnPause: $('#btnPause'), btnSound: $('#btnSound'), btnHome: $('#btnHome'), idle: $('#idle'), staff: $('#staff'), corner: $('#corner'),
+  guide: $('#guide'),
 };
 
 // Labels: one per node, positioned every frame.
@@ -178,6 +180,7 @@ function accept(input, sim, { replay = false } = {}) {
       const flights = dayring.migrate(app.prevSim, app.sim);
       anyChange = anyChange || flights > 0;
     }
+    guideEvent('replay');
     app.choreoUntil = anyChange ? performance.now() + 2300 : 0; // wall clock: the pause must not stretch on a slow frame rate
     app.timeScale = app.paused ? 0 : anyChange ? 0 : 1;
     app.lessonsAuto = false;
@@ -479,6 +482,7 @@ function openReveal(id, { viaPull = false } = {}) {
   } else tech.classList.add('hidden');
   p.classList.remove('deep', 'tech-open');
   p.querySelector('.more').textContent = 'Show me the working';
+  guideEvent('reveal', id);
   renderControls(id);
   p.querySelector('.release').classList.remove('dirty');
   p.querySelector('.release').textContent = 'Release';
@@ -492,6 +496,7 @@ function renderControls(id) {
   const box = el.panel.querySelector('.controls');
   box.innerHTML = '';
   const defs = CONTROLS[id]?.(app.input) || [];
+  if (defs.length && app.guide.step === 2) box.innerHTML = guideNote();
   if (!defs.length) {
     box.innerHTML = `<div class="ctl"><div class="lbl">Nothing to change here</div><div style="font-size:14px;color:var(--ink-dim)">${id === 'substation' ? 'A cable has no preferences. Its limit shapes every other decision.' : id === 'wind' || id === 'sun' ? 'Weather is not negotiable. The orchestra moves what waits for it.' : 'This is the backdrop the orchestra works around.'}</div></div>`;
     return;
@@ -546,9 +551,82 @@ function closeReveal({ replay = false } = {}) {
   app.reveal.id = null;
   let accepted = true;
   if (replay) accepted = commitDraft();
-  else app.mode = 'live';
+  else { app.mode = 'live'; guideEvent('close'); }
   if (!app.paused && accepted && !app.pending && !app.choreoUntil) app.timeScale = 1;
   if (accepted && !app.pending) audio.setFrozen(false);
+}
+
+/* ------------------------------------------------------------------ */
+/* Guided first minute                                                  */
+/* ------------------------------------------------------------------ */
+/* Kiosks need verbs. One prompt at a time, anchored to a real object, and
+   each is dismissed only by doing it:
+     1  touch the car                       → a reveal opens
+     2  change when you leave, then Replay  → a replay is committed
+     3  the day has been replanned; now try your home → another reveal opens
+   The guide is per visitor: reset returns it to the start. */
+const GUIDE_STEPS = {
+  1: { anchor: 'car', kicker: 'Start here', title: 'Touch the car', sub: 'Every object here made a decision tonight. Touch one to see it.' },
+  2: { anchor: null, kicker: 'Step 2 of 3', title: 'Change when you leave, then press Replay', sub: 'The whole street replans the same night around your new answer.' },
+  3: { anchor: 'home', kicker: 'Step 3 of 3', title: 'Now try your home', sub: 'Everything is connected. Watch what your comfort setting moves.' },
+};
+const GUIDE_CHANGE = {
+  car: 'Change when you leave, then press Replay',
+  home: 'Change how warm to keep the house, then press Replay',
+  bakery: 'Change when the bakery opens, then press Replay',
+  battery: 'Change what the system may do, then press Replay',
+};
+const GUIDE_NEXT = { home: { title: 'Now try your home', sub: 'Everything is connected. Watch what your comfort setting moves.' }, car: { title: 'Now try the car', sub: 'Everything is connected. Watch what your departure time moves.' } };
+function setGuide(step) {
+  const g = app.guide;
+  if (g.step === step) return;
+  g.step = step;
+  g.since = performance.now();
+  const def = GUIDE_STEPS[step];
+  el.guide.classList.toggle('hidden', !def || !def.anchor);
+  g.anchor = null;
+  if (def && def.anchor) {
+    let { anchor, title, sub } = def;
+    if (step === 3) { anchor = g.lastReveal === 'home' ? 'car' : 'home'; ({ title, sub } = GUIDE_NEXT[anchor]); }
+    g.anchor = anchor;
+    el.guide.querySelector('b').textContent = title;
+    el.guide.querySelector('span').textContent = sub;
+    let k = el.guide.querySelector('.step');
+    if (!k) { k = document.createElement('div'); k.className = 'step'; el.guide.querySelector('.text').prepend(k); }
+    k.textContent = def.kicker;
+    // turn to face the anchor so the prompt is on screen
+    const b = bearingOf(nodes.get(g.anchor).world);
+    cam.userYaw = b.yaw; cam.userPitch = clamp(b.pitch - 0.05, -0.2, 0.3);
+  }
+  if (typeof gov !== 'undefined') wake();
+}
+function guideNote() {
+  const g = app.guide;
+  if (g.step !== 2) return '';
+  const d = GUIDE_STEPS[2];
+  return `<div class="ctl guidenote"><span class="step">${d.kicker}</span>${GUIDE_CHANGE[g.lastReveal] || d.title}. ${d.sub}</div>`;
+}
+/** Events the guide listens to. */
+function guideEvent(evt, arg) {
+  const g = app.guide;
+  if (g.step === 0 || g.step == null) return;
+  if (evt === 'reveal') {
+    if (g.step === 1) { g.lastReveal = arg; setGuide(2); }
+    else if (g.step === 2) g.lastReveal = arg;
+    else if (g.step === 3 && arg !== g.lastReveal) { setGuide(0); showHint(); }
+  } else if (evt === 'close') {
+    if (g.step === 2) setGuide(1);
+  } else if (evt === 'replay') {
+    if (g.step === 2) { g.step = 2.5; g.since = performance.now(); el.guide.classList.add('hidden'); }
+  } else if (evt === 'settled') {
+    if (g.step === 2.5) setGuide(3);
+  }
+}
+function showHint() {
+  const hint = $('#hint');
+  hint.classList.remove('hidden', 'fade');
+  clearTimeout(app.hintTimer);
+  app.hintTimer = setTimeout(() => { hint.classList.add('fade'); setTimeout(() => hint.classList.add('hidden'), 1100); }, 9000);
 }
 
 /* ------------------------------------------------------------------ */
@@ -564,11 +642,8 @@ function showUI(show) {
 function leaveAttract() {
   if (app.mode !== 'attract') return;
   app.mode = 'live';
-  const hint = $('#hint');
-  hint.classList.remove('hidden', 'fade');
-  clearTimeout(app.hintTimer);
-  app.hintTimer = setTimeout(() => { hint.classList.add('fade'); setTimeout(() => hint.classList.add('hidden'), 1100); }, 7000);
   el.attract.classList.remove('show');
+  setGuide(1);
   showUI(true);
   if (settings.sound) { audio.enable(); el.btnSound.classList.add('on'); }
 }
@@ -594,6 +669,7 @@ function resetToAttract() {
   el.attract.classList.add('show');
   $('#hint').classList.add('hidden');
   cam.userYaw = 0; cam.userPitch = 0;
+  app.guide = { step: 0, since: 0, lastReveal: null }; el.guide.classList.add('hidden');
   showUI(false);
   audio.disable(); el.btnSound.classList.remove('on');
   app.idleShown = false;
@@ -834,7 +910,8 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   if (app.choreoUntil && performance.now() >= app.choreoUntil && (!dayring.choreo || performance.now() >= app.choreoUntil + 4000)) { app.choreoUntil = 0; if (!app.paused && !app.pending && app.mode !== 'reveal') app.timeScale = 1; }
 
   // camera: standing at the centre, looking around
-  const drift = frozen || reducedMotion ? 0 : 1;
+  const guiding = app.guide.step === 1 || app.guide.step === 3;
+  const drift = frozen || reducedMotion || guiding ? 0 : 1;
   const landscape = R.state.width / R.state.height > 1 && R.state.width > 760;
   if (app.mode === 'reveal' && app.reveal.id) {
     // turn to face the object and step a little towards it, placing it beside the panel (landscape) or above the sheet (portrait)
@@ -945,6 +1022,26 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
       if (vis) hs[i].style.transform = `translate(${((tmp.x * 0.5 + 0.5) * R.state.width).toFixed(1)}px, ${((-tmp.y * 0.5 + 0.5) * R.state.height).toFixed(1)}px) translate(-50%, -50%)`;
     });
   }
+  // guide prompt follows its anchor; falls to a screen edge if the anchor is out of view
+  {
+    const g = app.guide;
+    if (g.step === 2.5 && !app.choreoUntil && !dayring.choreo && app.mode !== 'reveal' && !app.pending) guideEvent('settled');
+    if (g.step === 3 && now - g.since > 30000) { setGuide(0); showHint(); }
+    const def = GUIDE_STEPS[g.step];
+    if (def && g.anchor && app.mode !== 'reveal') {
+      const p = proj[g.anchor];
+      const W = R.state.width, H = R.state.height;
+      const inView = p.visible && p.x > 60 && p.x < W - 60 && p.y > 80 && p.y < H - 80;
+      el.guide.classList.remove('hidden');
+      el.guide.classList.toggle('edge', !inView);
+      if (inView) el.guide.style.transform = `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -30%)`;
+      else {
+        const right = p.visible ? p.x > W / 2 : wrapAngle(bearingOf(nodes.get(g.anchor).world).yaw - cam.yaw) > 0;
+        el.guide.classList.toggle('right', right);
+        el.guide.style.transform = `translate(${right ? W - 200 : 200}px, ${(H * 0.45).toFixed(0)}px) translate(-50%, -50%)`;
+      }
+    } else if (def && g.anchor) el.guide.classList.add('hidden');
+  }
   $('#chipWhy').classList.toggle('hidden', app.mode === 'attract' || app.mode === 'reveal' || !!app.pending);
   if (app.mode !== 'attract' && (textNow || frozen)) {
     const h = slotHour(app.slotF) % 24;
@@ -993,4 +1090,4 @@ setInterval(() => {
 
 // Expose a tiny inspection hook for testing on the station (no UI).
 window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam, env };
-window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons;
+window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch;

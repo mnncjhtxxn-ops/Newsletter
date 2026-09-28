@@ -35,8 +35,10 @@ export function clockToSlot(clockHour) {
 
 export function formatClock(hourAbs, opts = {}) {
   const h = ((hourAbs % 24) + 24) % 24;
-  const hh = Math.floor(h);
-  const mm = Math.round((h - hh) * 60);
+  // round to the minute first so 18:59.6 becomes 19:00, never 18:60
+  const total = Math.round(h * 60) % (24 * 60);
+  const hh = Math.floor(total / 60);
+  const mm = total % 60;
   const s = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
   return opts.day && hourAbs >= 24 ? `${s} tomorrow` : s;
 }
