@@ -104,6 +104,7 @@ const app = {
   idleShown: false,
   replays: 0,
   guide: { step: 0, since: 0, lastReveal: null },
+  ride: null, // the camera riding the energy after a replay is committed
   lessonsAuto: false,
   t: 0,
   fps: 60,
@@ -175,14 +176,17 @@ function accept(input, sim, { replay = false } = {}) {
         let diff = false; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 1e-6) { diff = true; break; }
         if (diff) { ribbons.energy[changedLinks[k]].burst = 1; ribbons.info[{ ev: 'car', heat: 'home', bakery: 'bakery', battery: 'battery' }[k]]?.pulse(-1); anyChange = true; }
       }
-      const flights = dayring.migrate(app.prevSim, app.sim);
-      anyChange = anyChange || flights > 0;
+      // which load moved? the ride follows the first one that did
+      const moved = ['ev', 'heat', 'bakery', 'battery'].find((k) => { const a = app.prevSim.schedules[k], b = app.sim.schedules[k]; for (let i = 0; i < a.length; i++) if (Math.abs(a[i] - b[i]) > 1e-6) return true; return false; });
+      const dest = moved ? { ev: 'car', heat: 'home', bakery: 'bakery', battery: 'battery' }[moved] : null;
+      if (dest && !reducedMotion && startRide(dest)) anyChange = true;
+      else { const flights = dayring.migrate(app.prevSim, app.sim); anyChange = anyChange || flights > 0; }
     }
     guideEvent('replay');
-    app.choreoUntil = anyChange ? performance.now() + 2300 : 0; // wall clock: the pause must not stretch on a slow frame rate
+    app.choreoUntil = app.ride ? Infinity : anyChange ? performance.now() + 2300 : 0; // wall clock: the pause must not stretch on a slow frame rate; a ride sets it when it lands
     app.timeScale = app.paused ? 0 : anyChange ? 0 : 1;
     app.lessonsAuto = false;
-    showToast();
+    if (app.ride) app.toastPending = true; else showToast();
     el.chipChanged.classList.remove('hidden');
     el.chipLessons.classList.remove('hidden');
     for (const c of app.sim.conflicts) if (!c.resolved) audio.ping('conflict');
@@ -628,6 +632,80 @@ function showHint() {
 }
 
 /* ------------------------------------------------------------------ */
+/* The ride                                                             */
+/* ------------------------------------------------------------------ */
+/* When a change is committed, the visitor rides the energy: the camera leaves
+   the eye, follows the strand from the source (wind if that is what will be
+   charging it, otherwise the wider grid) through the street's cable and into
+   the object that moved, then lands looking down at that object's arc on the
+   ring as its lit quarter-hours fly to their new times, and returns to the
+   eye as the day starts again. It is the one moment of being *in* the flow,
+   and it ends where the decision can be read. Wall-clock timed. */
+const RIDE = { fly: 3.6, land: 1.6, back: 1.4 };
+const RIDE_LINK = { car: 'toCar', home: 'toHome', bakery: 'toBakery', battery: 'battery' };
+function startRide(dest) {
+  const link = ribbons.energy[RIDE_LINK[dest]];
+  if (!link) return false;
+  const first = dayring.firstActive(dest);
+  const slot0 = first >= 0 ? first : 0;
+  const src = app.sim.series.renewFrac[slot0] >= 0.5 ? 'windIn' : 'gridIn';
+  const pts = [];
+  for (let i = 0; i <= 40; i++) { const v = ribbons.energy[src].curve.getPointAt(i / 40); v.y += 0.35; pts.push(v); }
+  for (let i = 1; i <= 40; i++) { const v = link.curve.getPointAt(i / 40); v.y += 0.35; pts.push(v); }
+  const path = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
+  const target = nodes.get(dest).world;
+  const bead = dayring.beadAt(dest, slot0);
+  const landPos = target.clone().add(EYE.clone().sub(target).normalize().multiplyScalar(4.8)).add(new THREE.Vector3(0, 1.4, 0));
+  app.ride = { t0: performance.now(), dest, src, path, target, bead, landPos, phase: 'fly', endPos: path.getPointAt(1), migrated: false, looked: false };
+  ribbons.energy[src].burst = 1;
+  link.burst = 1;
+  return true;
+}
+/** Advance the ride; returns true while it owns the camera. */
+function updateRide(now, pos, look) {
+  const r = app.ride;
+  if (!r) return false;
+  const t = (now - r.t0) / 1000;
+  const smooth = (u) => u * u * (3 - 2 * u);
+  if (t < RIDE.fly) {
+    const u = smooth(clamp(t / RIDE.fly, 0, 1));
+    r.path.getPointAt(u, pos);
+    r.path.getPointAt(Math.min(1, u + 0.03), look);
+    if (u > 0.985) look.copy(r.target);
+    return true;
+  }
+  if (t < RIDE.fly + RIDE.land) {
+    if (!r.migrated) {
+      r.migrated = true;
+      // the lit quarter-hours fly to their new times while the visitor is looking at the ring
+      if (app.prevSim) dayring.migrate(app.prevSim, app.sim);
+      dayring.spotlight(r.dest, 3.2);
+    }
+    const u = smooth(clamp((t - RIDE.fly) / RIDE.land, 0, 1));
+    pos.copy(r.endPos).lerp(r.landPos, u);
+    look.copy(r.target).lerp(r.bead, u);
+    return true;
+  }
+  if (t < RIDE.fly + RIDE.land + RIDE.back) {
+    if (!r.looked) {
+      r.looked = true;
+      const b = bearingOf(r.target);
+      cam.userYaw = b.yaw; cam.userPitch = clamp(b.pitch - 0.06, -0.3, 0.3);
+      cam.yaw = cam.yawT = b.yaw; cam.pitch = cam.pitchT = cam.userPitch + 0.02; cam.dolly = cam.dollyT = 0;
+      app.choreoUntil = performance.now() + RIDE.back * 1000 + 300;
+    }
+    const u = smooth(clamp((t - RIDE.fly - RIDE.land) / RIDE.back, 0, 1));
+    pos.copy(r.landPos).lerp(EYE, u);
+    const fwd = forwardOf(cam.yaw, cam.pitch).add(EYE);
+    look.copy(r.bead).lerp(fwd, u);
+    return true;
+  }
+  app.ride = null;
+  if (app.toastPending) { app.toastPending = false; showToast(); }
+  return false;
+}
+
+/* ------------------------------------------------------------------ */
 /* Mode transitions                                                     */
 /* ------------------------------------------------------------------ */
 function showUI(show) {
@@ -667,6 +745,7 @@ function resetToAttract() {
   $('#hint').classList.add('hidden');
   cam.userYaw = 0; cam.userPitch = 0;
   app.guide = { step: 0, since: 0, lastReveal: null }; el.guide.classList.add('hidden');
+  app.ride = null; app.choreoUntil = 0; app.toastPending = false;
   showUI(false);
   audio.disable(); el.btnSound.classList.remove('on');
   app.idleShown = false;
@@ -694,6 +773,7 @@ function worldAt(x, y, nodeId) {
 }
 touch.on('down', ({ x, y, node }) => {
   noteInput();
+  if (app.ride) return; // the ride owns the camera for a few seconds
   const first = app.mode === 'attract';
   leaveAttract();
   if (app.mode === 'reveal') return; // the panel owns the interaction
@@ -734,6 +814,7 @@ touch.on('pullend', ({ node, progress }) => {
 });
 touch.on('tap', ({ x, y, node }) => {
   app.holding = false;
+  if (app.ride) return;
   if (app.looked) { app.looked = false; return; }
   const target = node || (app.mode !== 'attract' ? dayring.nearest(R.camera, R.state.width, R.state.height, x, y) : null);
   if (app.mode === 'reveal') { if (target && target !== app.reveal.id) openReveal(target); return; }
@@ -926,6 +1007,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   const fwd = forwardOf(cam.yaw, cam.pitch);
   camPos.copy(EYE).add(fwd.clone().multiplyScalar(cam.dolly));
   camLook.copy(camPos).add(fwd);
+  const riding = updateRide(performance.now(), camPos, camLook);
   R.camera.position.copy(camPos);
   R.camera.lookAt(camLook);
 
@@ -950,7 +1032,8 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   E.battery.flow = f.batteryKw;
   const dimOthers = revealId ? 0.45 : 1;
   const linkOf = { windIn: 'wind', gridIn: 'grid', sunIn: 'sun', toCar: 'car', toHome: 'home', toBakery: 'bakery', toStreet: 'street', battery: 'battery' };
-  for (const k2 in E) E[k2].update(dtRaw, app.timeScaleCur, { dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
+  const ribbonTime = riding ? 1 : app.timeScaleCur;
+  for (const k2 in E) E[k2].update(dtRaw, ribbonTime, { dim: revealId && linkOf[k2] !== revealId && revealId !== 'substation' ? dimOthers : 1 });
   for (const k2 in ribbons.info) ribbons.info[k2].update(dtRaw, app.timeScaleCur, { trace: frozen || app.mode === 'reveal' ? (revealId ? (k2 === revealId ? 1 : 0.25) : 0.7) : 0.08 });
   field.update(dtRaw, app.timeScaleCur, revealId ? 0.5 : 1);
   const ringAct = { car: f.evKw / 7, home: f.heatKw / 3, bakery: f.bakeryKw / 38, battery: Math.abs(f.batteryKw) / 5, substation: 0 };
@@ -974,7 +1057,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   touch.setProjected(proj);
   const textNow = now - domTick > 250;
   if (textNow) domTick = now;
-  const showLabels = app.mode !== 'attract';
+  const showLabels = app.mode !== 'attract' && !riding;
   for (const id in labelEls) {
     const L = labelEls[id]; const p = proj[id];
     let op = 0;
@@ -1014,7 +1097,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   // guide prompt follows its anchor; falls to a screen edge if the anchor is out of view
   {
     const g = app.guide;
-    if (g.step === 2.5 && !app.choreoUntil && !dayring.choreo && app.mode !== 'reveal' && !app.pending) guideEvent('settled');
+    if (g.step === 2.5 && !app.ride && !app.choreoUntil && !dayring.choreo && app.mode !== 'reveal' && !app.pending) guideEvent('settled');
     if (g.step === 3 && now - g.since > 30000) { setGuide(0); showHint(); }
     const def = GUIDE_STEPS[g.step];
     if (def && g.anchor && app.mode !== 'reveal') {
@@ -1050,13 +1133,13 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     const tt = formatClock(h);
     if (el.clockTime.textContent !== tt) el.clockTime.textContent = tt;
     const over = f.feeder > SCENARIO.feederLimitKw;
-    const sub = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${app.pending ? ' · <b class="pend">waiting for your answer</b>' : frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
+    const sub = `${mood(h)} · ${windWords(f.wind)} · <b>${f.price.toFixed(0)}p</b>/kWh · cable <b class="${over ? 'over' : ''}">${Math.max(0, f.feeder).toFixed(0)} of ${SCENARIO.feederLimitKw} kW</b>${app.mode === 'replay' ? ' · <b>replaying</b>' : ''}${app.pending ? ' · <b class="pend">waiting for your answer</b>' : app.ride ? ' · <b>following the energy</b>' : app.choreoUntil ? ' · replanning' : frozen && !app.paused ? ' · paused at your fingertip' : ''}`;
     if (sub !== el.clockSub.innerHTML) el.clockSub.innerHTML = sub;
   }
 
   // settled? (camera, condense, ripple, time scale and captions all at rest)
   if (Math.abs(ts.strength - ripTarget) < 0.01) ts.strength = ripTarget;
-  const settled = camDist < 0.02 && !dayring.choreo && !app.choreoUntil && app.reveal.condense === wantCondense && ts.strength === ripTarget && app.timeScaleCur === app.timeScale && captionPool.length === 0 && (!ts.targetStrength || app.mode === 'reveal');
+  const settled = camDist < 0.02 && !app.ride && !dayring.choreo && !app.choreoUntil && app.reveal.condense === wantCondense && ts.strength === ripTarget && app.timeScaleCur === app.timeScale && captionPool.length === 0 && (!ts.targetStrength || app.mode === 'reveal');
   diag.settle = { camDist, condense: app.reveal.condense, wantCondense, rip: ts.strength, ripTarget, tsc: app.timeScaleCur, tsT: app.timeScale, captions: captionPool.length, holding: app.holding, scrubbing: app.scrubbing, lastInputAgo: now - lastInputFrame, settled };
   settledFrames = settled ? settledFrames + 1 : 0;
   const mode = chooseMode(settledFrames > 2, now);
@@ -1091,4 +1174,4 @@ setInterval(() => {
 
 // Expose a tiny inspection hook for testing on the station (no UI).
 window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam, env };
-window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch;
+window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch; window.__orchestra.RIDE = RIDE;

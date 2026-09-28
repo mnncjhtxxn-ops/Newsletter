@@ -183,6 +183,9 @@ export class DayRing {
     return this.flights.length;
   }
 
+  /** Hold one tier bright for a while (the landing of the ride). */
+  spotlight(id, seconds) { this.spot = { id, until: seconds }; }
+
   /** First lit slot of a participant in the current plan, or -1. */
   firstActive(id) {
     const r = this.rings.find((x) => x.def.id === id);
@@ -220,7 +223,11 @@ export class DayRing {
     this.play.geometry.getAttribute('position').needsUpdate = true;
     // beads flare under the playhead; threads carry the slot up to the object
     this.ghostAlpha += ((ghost && this.hasGhost ? 1 : 0) - this.ghostAlpha) * Math.min(1, dt * 2.5);
+    if (this.spot) { this.spot.until -= dt; if (this.spot.until <= 0) this.spot = null; }
     for (const ring of this.rings) {
+      const spot = this.spot && this.spot.id === ring.def.id ? 1 : this.spot ? 0.45 : 1;
+      ring.mat.uniforms.uOpacity.value += (0.85 * this.dim * spot - ring.mat.uniforms.uOpacity.value) * Math.min(1, dt * 4);
+      ring.mat.uniforms.uSize.value += ((this.spot && this.spot.id === ring.def.id ? 1.25 : 0.8) - ring.mat.uniforms.uSize.value) * Math.min(1, dt * 4);
       const arr = ring.size.array;
       if (ring.flare !== slot) {
         if (ring.flare >= 0) arr[ring.flare] = ring.base[ring.flare];
@@ -306,6 +313,6 @@ export class DayRing {
     return best ? best.id : null;
   }
 
-  setDim(d) { this.dim = d; for (const r of this.rings) r.mat.uniforms.uOpacity.value = 0.85 * d; this.playMat.uniforms.uOpacity.value = 0.9 * d; }
+  setDim(d) { this.dim = d; this.playMat.uniforms.uOpacity.value = 0.9 * d; }
   materials() { return [...this.rings.map((r) => r.mat), ...this.rings.map((r) => r.ghostMat), ...this.rings.map((r) => r.threadMat), this.playMat, this.moverMat]; }
 }
