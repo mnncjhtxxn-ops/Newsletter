@@ -53,6 +53,24 @@ export class Orchestra {
     this.frozen = false;
     this.swell = 0;
     this.lastBeat = -1;
+    this.positions = {}; // section → [x, y, z] in scene metres; set by the app from the objects' places
+  }
+
+  /** Where each section plays from (for the listener's ears, on a headset or a stereo pair). */
+  setPositions(map) {
+    Object.assign(this.positions, map);
+    for (const k in this.sections) { const p = this.positions[k]; if (p && this.sections[k].panner) setPos(this.sections[k].panner, p); }
+  }
+
+  /** The listener follows the visitor's head. */
+  setListener(pos, fwd, up) {
+    if (!this.ctx) return;
+    const L = this.ctx.listener;
+    if (L.positionX) {
+      L.positionX.value = pos.x; L.positionY.value = pos.y; L.positionZ.value = pos.z;
+      L.forwardX.value = fwd.x; L.forwardY.value = fwd.y; L.forwardZ.value = fwd.z;
+      L.upX.value = up.x; L.upY.value = up.y; L.upZ.value = up.z;
+    } else if (L.setPosition) { L.setPosition(pos.x, pos.y, pos.z); L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z); }
   }
 
   enable() {
@@ -93,6 +111,7 @@ export class Orchestra {
     this.sections.strings = this.section({ type: 'sawtooth', voices: [[0, 0, -6], [4, 0, 5], [7, 0, -3]], cutoff: 900, level: 0 });
     this.sections.pad = this.section({ type: 'triangle', voices: [[2, 0, 0], [6, 0, 4], [0, 1, -4]], cutoff: 700, level: 0 });
     this.sections.brass = this.section({ type: 'sawtooth', voices: [[0, -1, 0], [4, -1, 7], [2, 0, -7]], cutoff: 500, level: 0 });
+    this.setPositions(this.positions);
     // slow vibrato on the strings
     const lfo = c.createOscillator(); lfo.frequency.value = 4.6;
     const lfoG = c.createGain(); lfoG.gain.value = 2.2;
@@ -105,14 +124,15 @@ export class Orchestra {
     const c = this.ctx;
     const gain = c.createGain(); gain.gain.value = level;
     const filter = c.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = cutoff; filter.Q.value = 0.5;
-    filter.connect(gain); gain.connect(this.bus);
+    const panner = makePanner(c);
+    filter.connect(gain); gain.connect(panner); panner.connect(this.bus);
     const vs = voices.map(([degree, octave, detune]) => {
       const osc = c.createOscillator(); osc.type = type; osc.detune.value = detune;
       const g = c.createGain(); g.gain.value = 1 / voices.length;
       osc.connect(g); g.connect(filter); osc.start();
       return { osc, degree, octave };
     });
-    return { gain, filter, voices: vs, level, cutoff };
+    return { gain, filter, voices: vs, level, cutoff, panner };
   }
 
   retune(now = false) {
@@ -163,40 +183,41 @@ export class Orchestra {
     if (f.evKw > 0.1) {
       const walk = [0, 4, 2, 4][beatInBar];
       const g = 0.16 * clamp(f.evKw / 7, 0.2, 1);
-      this.pluck(t0, degreeHz(mode, root + walk, -1), g, 0.45, 'triangle', 1100);
-      this.pluck(t0 + sec * 0.5, degreeHz(mode, root + walk + 2, -1), g * 0.7, 0.35, 'triangle', 1100);
+      this.pluck(t0, degreeHz(mode, root + walk, -1), g, 0.45, 'triangle', 1100, this.positions.cello);
+      this.pluck(t0 + sec * 0.5, degreeHz(mode, root + walk + 2, -1), g * 0.7, 0.35, 'triangle', 1100, this.positions.cello);
     }
     // harp while the battery moves: up when storing, down when releasing
     if (Math.abs(f.batteryKw) > 0.1) {
       const up = f.batteryKw > 0;
       for (let k = 0; k < 4; k++) {
         const d = up ? k * 2 : 6 - k * 2;
-        this.pluck(t0 + k * sec * 0.25, degreeHz(mode, root + d, 1), 0.07, 0.6, 'sine', 4000);
+        this.pluck(t0 + k * sec * 0.25, degreeHz(mode, root + d, 1), 0.07, 0.6, 'sine', 4000, this.positions.harp);
       }
     }
     // timpani only near the cable's limit; every beat when over it
     const strain = clamp((f.cableFrac - 0.82) / 0.18, 0, 1);
-    if (strain > 0 && (f.cableFrac > 1 || beatInBar === 0)) this.timpani(t0, 0.25 + 0.75 * strain);
+    if (strain > 0 && (f.cableFrac > 1 || beatInBar === 0)) this.timpani(t0, 0.25 + 0.75 * strain, this.positions.timpani);
   }
 
-  pluck(t, hz, gain, decay, type = 'triangle', cutoff = 1200) {
+  pluck(t, hz, gain, decay, type = 'triangle', cutoff = 1200, pos = null) {
     const c = this.ctx;
     const o = c.createOscillator(); o.type = type; o.frequency.value = hz;
     const fl = c.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = cutoff;
     const g = c.createGain(); g.gain.value = 0;
-    o.connect(fl); fl.connect(g); g.connect(this.bus);
+    o.connect(fl); fl.connect(g); g.connect(this.out(pos));
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + 0.006);
     g.gain.exponentialRampToValueAtTime(0.0004, t + decay);
     o.start(t); o.stop(t + decay + 0.05);
   }
 
-  timpani(t, gain) {
+  timpani(t, gain, pos = null) {
     const c = this.ctx;
+    const dest = this.out(pos);
     const o = c.createOscillator(); o.type = 'sine';
     o.frequency.setValueAtTime(92, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.25);
     const g = c.createGain(); g.gain.value = 0;
-    o.connect(g); g.connect(this.bus);
+    o.connect(g); g.connect(dest);
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.5 * gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.9);
     o.start(t); o.stop(t + 1);
     // the skin: a short burst of filtered noise
@@ -204,7 +225,14 @@ export class Orchestra {
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
     n.buffer = b; const nf = c.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 400;
     const ng = c.createGain(); ng.gain.value = 0.25 * gain;
-    n.connect(nf); nf.connect(ng); ng.connect(this.bus); n.start(t);
+    n.connect(nf); nf.connect(ng); ng.connect(dest); n.start(t);
+  }
+
+  /** A destination at a place in the room, or the plain bus. */
+  out(pos) {
+    if (!pos) return this.bus;
+    const p = makePanner(this.ctx); setPos(p, pos); p.connect(this.bus);
+    return p;
   }
 
   /** A release: the ensemble lands on the chord together. */
@@ -248,4 +276,14 @@ export class Orchestra {
 
   /** Kept for callers that only know activity levels; the score itself uses setFrame and beat. */
   setActivity() {}
+}
+
+function makePanner(c) {
+  const p = c.createPanner();
+  p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 7; p.rolloffFactor = 0.35; p.coneInnerAngle = 360;
+  return p;
+}
+function setPos(p, v) {
+  const [x, y, z] = v;
+  if (p.positionX) { p.positionX.value = x; p.positionY.value = y; p.positionZ.value = z; } else p.setPosition(x, y, z);
 }

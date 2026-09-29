@@ -14,6 +14,7 @@ import { DayRing } from './scene/dayring.js';
 import { Environment } from './scene/environment.js';
 import { Touch } from './scene/touch.js';
 import { Orchestra } from './ui/audio.js';
+import { XRMode } from './xr/vr.js';
 
 const $ = (s) => document.querySelector(s);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -79,6 +80,71 @@ const camLook = new THREE.Vector3(0, 0.4, -1);
 function forwardOf(yaw, pitch, out = new THREE.Vector3()) { return out.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)); }
 function bearingOf(v) { return { yaw: Math.atan2(v.x, -v.z), pitch: Math.atan2(v.y - EYE.y, Math.hypot(v.x, v.z)), dist: v.distanceTo(EYE) }; }
 function wrapAngle(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+
+/* ------------------------------------------------------------------ */
+/* The conductor's chair (WebXR)                                        */
+/* ------------------------------------------------------------------ */
+const xr = new XRMode(R, {
+  eye: EYE, nodes, dayring,
+  onSelectNode: (id) => { noteInput(); wake(); leaveAttract(); openReveal(id); },
+  onRing: (slot, phase) => {
+    noteInput(); wake();
+    if (phase === 'start') { leaveAttract(); app.holding = true; app.timeScale = 0; app.baton = 'xr'; app.batonTarget = slot; app.scrubbing = true; audio.setFrozen(true); }
+    else if (phase === 'move') { if (slot != null) app.batonTarget = slot; }
+    else { app.holding = false; app.baton = null; app.batonTarget = null; app.scrubbing = false; resumeAfterTouch(); }
+  },
+  onHold: (phase) => {
+    noteInput(); wake();
+    if (phase === 'start') { leaveAttract(); if (app.mode === 'reveal') return; app.holding = true; app.timeScale = 0; app.touch.targetStrength = 1; audio.setFrozen(true); }
+    else { app.holding = false; app.touch.targetStrength = 0; resumeAfterTouch(); }
+  },
+  onPanel: (element) => {
+    noteInput(); wake();
+    if (element === 'release') { closeReveal({ replay: app.reveal.dirty }); return; }
+    if (element === 'close') { closeReveal({ replay: false }); return; }
+    const m = /^c(\d+):(\d+)$/.exec(element);
+    if (!m) return;
+    const defs = CONTROLS[app.reveal.id]?.(app.input) || [];
+    const d = defs[Number(m[1])];
+    if (!d) return;
+    const opts = d.kind === 'perm' ? ['auto', 'ask', 'never'] : d.options;
+    const v = opts[Number(m[2])];
+    setIn(app.input, d.key, v);
+    markDirty();
+    renderControls(app.reveal.id);
+    xr.refreshPanel();
+  },
+  panelModel: (id) => panelModel(id),
+  onSession: (on) => {
+    app.xrPresenting = on;
+    if (on) { gov.beginExternal(); R.renderer.setAnimationLoop((t) => gov.pump(t)); if (settings.sound) audio.enable(); }
+    else { R.renderer.setAnimationLoop(null); gov.endExternal(); }
+    document.body.classList.toggle('xr', on);
+  },
+});
+/** The reveal panel as data, for the in-room panel: same explanation, same controls as the HTML one. */
+function panelModel(id) {
+  const ex = app.sim.explain[id];
+  const defs = CONTROLS[id]?.(app.input) || [];
+  const controls = defs.map((d, di) => {
+    const cur = getIn(app.input, d.key);
+    const opts = d.kind === 'perm' ? ['auto', 'ask', 'never'] : d.options;
+    const shown = d.kind === 'slider' ? opts.filter((v, k) => k % 2 === 0 || v === cur) : opts;
+    return {
+      label: d.label,
+      options: shown.map((v) => ({ id: `c${di}:${opts.indexOf(v)}`, text: d.kind === 'perm' ? PERM_LABELS[v] : d.fmt(v), on: v === cur, tone: d.kind === 'perm' ? v : undefined })),
+    };
+  });
+  return {
+    eyebrow: ex.title, promise: ex.promise,
+    layers: [{ head: 'You asked for this.', text: ex.short.asked }, { head: 'You allowed this.', text: ex.short.allowed }, { head: 'So this happened.', text: ex.short.happened }],
+    controls, release: app.reveal.dirty ? 'Replay with this change' : 'Release',
+    note: app.guide.step === 2 ? (GUIDE_CHANGE[app.guide.lastReveal] || GUIDE_STEPS[2].title) : undefined,
+  };
+}
+function resumeAfterTouch() {
+  if (app.mode !== 'reveal' && !app.paused) setTimeout(() => { if (!app.holding && app.mode !== 'reveal' && !app.paused && !app.pending) { app.timeScale = 1; audio.setFrozen(false); } }, 700);
+}
 
 /* ------------------------------------------------------------------ */
 /* App state                                                             */
@@ -552,6 +618,7 @@ function renderControls(id) {
 }
 function markDirty() {
   noteInput();
+  xr.refreshPanel();
   app.reveal.dirty = true;
   const b = el.panel.querySelector('.release');
   b.classList.add('dirty');
@@ -888,6 +955,8 @@ el.btnSound.addEventListener('click', () => {
   else { audio.enable(); el.btnSound.classList.toggle('on', audio.enabled); }
 });
 el.btnHome.addEventListener('click', () => resetToAttract());
+XRMode.supported().then((ok) => { if (ok) $('#vrbtn').classList.remove('hidden'); });
+$('#vrbtn').addEventListener('click', () => { noteInput(); leaveAttract(); xr.enter().catch((e) => { console.warn('VR session refused', e); }); });
 el.chipChanged.addEventListener('click', () => { noteInput(); if (el.toast.classList.contains('hidden')) showToast(false); else el.toast.classList.add('hidden'); });
 el.chipLessons.addEventListener('click', () => { noteInput(); if (el.lessons.classList.contains('hidden')) showLessons(); else el.lessons.classList.add('hidden'); });
 el.lessons.querySelector('.x').addEventListener('click', () => { noteInput(); el.lessons.classList.add('hidden'); });
@@ -917,6 +986,8 @@ window.addEventListener('keydown', (e) => { if (e.key === ' ') el.btnPause.click
 /* Captions: the moment a decision is made                              */
 /* ------------------------------------------------------------------ */
 const captionPool = [];
+const listenerUp = new THREE.Vector3(0, 1, 0);
+audio.setPositions({ strings: nodes.get('wind').world.toArray(), pad: nodes.get('home').world.toArray(), brass: nodes.get('bakery').world.toArray(), cello: nodes.get('car').world.toArray(), harp: nodes.get('battery').world.toArray(), timpani: nodes.get('substation').world.toArray() });
 function caption(nodeId, text) {
   // one live caption per object: a newer decision replaces the older one
   for (let k = captionPool.length - 1; k >= 0; k--) if (captionPool[k].node === nodeId) { captionPool[k].el.remove(); captionPool.splice(k, 1); }
@@ -1056,8 +1127,8 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   camPos.copy(EYE).add(fwd.clone().multiplyScalar(cam.dolly));
   camLook.copy(camPos).add(fwd);
   const riding = updateRide(performance.now(), camPos, camLook);
-  R.camera.position.copy(camPos);
-  R.camera.lookAt(camLook);
+  if (xr.presenting) xr.update({ eye: EYE, ridePos: camPos, riding, revealId: app.reveal.id });
+  else { R.camera.position.copy(camPos); R.camera.lookAt(camLook); }
   {
     const amt = app.rideAmt || 0;
     const fov = R.state.fov + 26 * amt;
@@ -1108,7 +1179,12 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   R.render();
 
   // audio follows activity
-  if (audio.enabled) { audio.setFrame(f); audio.setSwell(app.rideAmt || 0); }
+  if (audio.enabled) {
+    audio.setFrame(f); audio.setSwell(app.rideAmt || 0);
+    const head = xr.presenting ? xr.headPosition() : camPos;
+    const hf = xr.presenting ? new THREE.Vector3(0, 0, -1).applyQuaternion(R.renderer.xr.getCamera().quaternion) : forwardOf(cam.yaw, cam.pitch);
+    audio.setListener(head, hf, listenerUp);
+  }
 
   // HTML overlay: positions every rendered frame; text at ~4 Hz or on change
   const proj = nodes.project(R.camera, R.state.width, R.state.height);
@@ -1232,4 +1308,4 @@ setInterval(() => {
 
 // Expose a tiny inspection hook for testing on the station (no UI).
 window.__orchestra = { app, simulate, settings, resetToAttract, frameAt, openReveal, closeReveal, applyChange, commitDraft, approvePending, declinePending, diag, gov, planCache, dayring, cam, env };
-window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch; window.__orchestra.RIDE = RIDE; window.__orchestra.audio = audio;
+window.__orchestra.nodes = nodes; window.__orchestra.R = R; window.__orchestra.ribbons = ribbons; window.__orchestra.touch = touch; window.__orchestra.RIDE = RIDE; window.__orchestra.audio = audio; window.__orchestra.xr = xr; window.__orchestra.THREE = THREE;

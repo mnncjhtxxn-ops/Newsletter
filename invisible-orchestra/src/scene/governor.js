@@ -80,6 +80,37 @@ export class RenderGovernor {
     if (!this.disposed && this.mode !== 'HIDDEN' && (this.rates[this.mode] > 0 || this.dirty) && this.handle === null) this.handle = this.raf(this.boundFrame);
   }
 
+  /**
+   * Hand the loop to an external driver (a WebXR session must render every
+   * frame from its own animation loop). While external, the governor's own
+   * rAF is a no-op and the driver calls pump(ts) once per frame.
+   */
+  beginExternal() {
+    this.cancel();
+    this.savedRaf = this.raf;
+    this.raf = () => 1; // scheduled but never fires: the external driver pumps
+    this.external = true;
+    this.previous = null;
+    this.deadline = null;
+  }
+  pump(ts) {
+    if (!this.external) return;
+    this.handle = null;
+    // a headset renders every frame: no cap, no on-demand skipping
+    this.dirty = true;
+    this.deadline = null;
+    this.frame(ts);
+  }
+  endExternal() {
+    if (!this.external) return;
+    this.external = false;
+    this.raf = this.savedRaf;
+    this.handle = null;
+    this.previous = null;
+    this.deadline = null;
+    this.invalidate();
+  }
+
   dispose() { this.cancel(); this.disposed = true; }
 }
 

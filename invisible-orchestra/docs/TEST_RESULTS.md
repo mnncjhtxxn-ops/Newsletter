@@ -49,6 +49,8 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | V21 | Vehicle to grid keeps the departure promise and the reserve | PASS | unit test: export only at ≥ 24p, reserve 10 % kept, 80 % at departure, home's day cheaper, street peak not raised; UI replay verified |
 | V22 | Street lending is bounded and only for a coordinated street | PASS | unit tests: pool covers a locked-car overload, never exceeds pool kW/kWh, no pool for the uncoordinated baseline |
 | V23 | Battery trading respects bounds and other promises | PASS | unit test: sells only at or above the sell floor, SoC within bounds, car and comfort promises untouched, earns more than keep mode |
+| V24 | VR: pinch an object opens its decision on an in-room panel; the panel's chips and Release work by ray; ring sweep drives time; hold stops it | PASS (synthetic rays) / **not worn** | `xr.cjs`: the same select logic driven by simulated controller rays against the real scene in headless Chromium; no WebXR session can be created without a headset |
+| V25 | VR: Enter VR button appears only where immersive VR is supported | PASS | stubbed `navigator.xr` shows the button; absent by default in headless Chromium |
 | V12 | Environment: mirror floor, pools, pillars, landscape, bokeh | PASS as built / **awaiting your visual sign-off** | screenshots in the session; reflection off in Economy; cost not measured on hardware (see PERFORMANCE.md) |
 
 ## Operational tests (spec §12)

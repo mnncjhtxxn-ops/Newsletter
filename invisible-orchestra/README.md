@@ -55,6 +55,10 @@ Three things stretch the scenario beyond today's flexibility, each bounded and e
 
 Every one of these is a promise or permission the visitor can change, replays through the same verified planner, and shows up in the decisions, the ring, the "what changed" summary and the lessons.
 
+## The conductor's chair (VR)
+
+The same file, worn. In a headset browser with WebXR (a Meta Quest in its own browser) an **Enter VR** button appears. The visitor stands at the centre of the sculpture with the ring at their feet; a ray from each hand or controller pinches an object to open its decision on a panel in the room (the same layers and chips as the kiosk panel, drawn from the same data), pinches the ring and sweeps to drive time, or pinches nothing and holds to stop it. The orchestra plays from where the objects are. Serve it with `npm run vr` (HTTPS on the local network) and see `docs/VR_PROTOTYPE.md` for status: built and exercised with synthetic rays against the real scene, **not yet worn**.
+
 ## The room it stands in
 
 The sculpture stands over a dark mirror. The floor is a still, black pool that reflects every object and strand with a slow ripple that fades to nothing in the distance; a second, fainter pool hangs above as a ring of light in the ceiling. Each participant sits on its own ripple pool, and rings of soft light pillars rise from the horizon like the far edge of a landscape, with low hills of dim points and a few spires hinted beyond them. Near the viewer a few large, very faint bokeh discs drift, so the space reads as air rather than vacuum. All of it is decorative and none of it carries data: the pools brighten with a participant's activity, but every fact is still in the strands, the ring and the panel.

@@ -2,3 +2,4 @@ node_modules/
 # The built single-file release is committed on purpose: it is the deployable.
 !dist/
 !dist/invisible-orchestra.html
+.cert/

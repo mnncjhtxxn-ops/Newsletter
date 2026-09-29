@@ -207,6 +207,7 @@ button { cursor: pointer; }
 #panel .tech code { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--info); }
 #panel .pendnote { font-size: 13px; color: #ffd166; border: 1px solid rgba(255, 209, 102, 0.4); border-radius: 10px; padding: 8px 10px; }
 #controls .chip.why { color: #ffd166; border-color: rgba(255, 209, 102, 0.45); }
+#vrbtn { color: #5bd38c; border-color: rgba(91, 211, 140, 0.5); font-weight: 600; }
 @media (max-aspect-ratio: 1/1), (max-width: 760px) {
   /* portrait: everything a visitor must touch lives in the lower band */
   #cards { top: auto; bottom: 84px; left: 16px; right: 16px; width: auto; max-height: 48vh; overflow-y: auto; }
