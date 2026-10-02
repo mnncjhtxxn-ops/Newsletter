@@ -26,14 +26,17 @@ On the headset, open that address in the Quest browser, accept the self-signed c
 - **The ride.** On release, the rig rides the energy along the strands as the kiosk camera does. This is vection and some people will feel it; if it proves uncomfortable the ride can be skipped in VR by treating the session like reduced motion (one line in `src/main.js`).
 - **The orchestra in the room.** Every section has a position: strings at the turbine, the cello at the car, brass at the bakery, the harp at the battery, timpani at the cable. The listener follows the head.
 
+- **Cards in the room.** A price-limit or capacity conflict, or an "ask me first" request, appears as a card beside the decision panel (or ahead of you when none is open) with its options as buttons; pinch one and the day replans. The pending request has Yes and No.
+- **A baton in each hand.** Each controller or pinch point carries a slim white baton with a glowing tip; the ray leaves the tip. Tracked hands are drawn as spheres at the joints (procedural, nothing to download). A quick sideways flick of the tip with nothing pinched is a flourish: a glissando the way the hand goes, faster hand, more notes.
+- **The guided first minute, in the room.** The same three prompts as the kiosk: a card near the car with a breathing ring around it, the note on the panel, then a card near the home.
+
 ## What it does not do yet
 
-- No hand models: a ray and a reticle only. Three.js can draw tracked hands; it is a small addition.
-- No prompts beyond one starting card. The guided first minute is HTML and does not exist in a session.
-- Conflict and permission cards (the yellow "ask me first" and price-limit cards) are HTML and are not yet drawn in the room. A decision that raises one still records it; the visitor sees it when they take the headset off. This is the first thing to add.
+- Hand models are joint spheres, not a skinned hand.
+- The flourish threshold (1.3 m/s sideways) is a guess until worn.
 - Quality: the session runs whatever profile the station is on. On a Quest the mirror floor and halo pass will cost too much; set the profile to Economy in the staff panel before entering, or add an automatic switch.
 - The kiosk's 2D window is not a clean spectator view; casting is the way to show the crowd.
 
 ## Effort
 
-A convincing first wearing: one day with a headset for tuning. Cards in the room, hand models and an automatic quality switch: about a week. A polished conductor's chair with its own onboarding and a spectator view: three to four weeks.
+A convincing first wearing: one day with a headset for tuning (panel distance, flourish threshold, ride comfort, frame rate). An automatic quality switch and skinned hands: a few days. A polished conductor's chair with a spectator view: two to three weeks.

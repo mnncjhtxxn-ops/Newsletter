@@ -51,6 +51,10 @@ Status vocabulary: **PASS** ran and met the condition · **FAIL** ran and did no
 | V23 | Battery trading respects bounds and other promises | PASS | unit test: sells only at or above the sell floor, SoC within bounds, car and comfort promises untouched, earns more than keep mode |
 | V24 | VR: pinch an object opens its decision on an in-room panel; the panel's chips and Release work by ray; ring sweep drives time; hold stops it | PASS (synthetic rays) / **not worn** | `xr.cjs`: the same select logic driven by simulated controller rays against the real scene in headless Chromium; no WebXR session can be created without a headset |
 | V25 | VR: Enter VR button appears only where immersive VR is supported | PASS | stubbed `navigator.xr` shows the button; absent by default in headless Chromium |
+| V26 | VR: conflict and permission cards in the room, options pressed by ray resolve the conflict | PASS (synthetic rays) | `xr.cjs`: a price-limit conflict renders as a card beside the panel; pressing an option applies the resolution |
+| V27 | VR: guide card and beacon ring placed at the anchor object; baton built with tip and glow | PASS | `xr.cjs` |
+| V28 | Ride is one continuous curve with a monotone time warp and a low-passed gaze | PASS as built / **unfelt** | smoothness probe in headless Chromium runs at ~1 fps, so per-frame jerk cannot be measured there; the construction guarantees C1 position and filtered orientation; judge on hardware |
+| V29 | Score samples render offline from the real simulation (`npm run samples`) | PASS | six clips, peaks 0.34–0.44, no errors; musical judgement is yours |
 | V12 | Environment: mirror floor, pools, pillars, landscape, bokeh | PASS as built / **awaiting your visual sign-off** | screenshots in the session; reflection off in Economy; cost not measured on hardware (see PERFORMANCE.md) |
 
 ## Operational tests (spec §12)

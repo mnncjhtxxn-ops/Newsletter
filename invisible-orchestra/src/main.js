@@ -98,8 +98,15 @@ const xr = new XRMode(R, {
     if (phase === 'start') { leaveAttract(); if (app.mode === 'reveal') return; app.holding = true; app.timeScale = 0; app.touch.targetStrength = 1; audio.setFrozen(true); }
     else { app.holding = false; app.touch.targetStrength = 0; resumeAfterTouch(); }
   },
-  onPanel: (element) => {
+  onPanel: (element, which) => {
     noteInput(); wake();
+    if (which === 'cards') {
+      if (element === 'yes') approvePending();
+      else if (element === 'no') declinePending();
+      else { const m = /^opt:(\d+):(\d+)$/.exec(element); if (m) { const c = app.sim.conflicts[Number(m[1])]; const o = c?.options?.[Number(m[2])]; if (o?.apply) applyChange(o.apply); } }
+      return;
+    }
+    if (which === 'card') return;
     if (element === 'release') { closeReveal({ replay: app.reveal.dirty }); return; }
     if (element === 'close') { closeReveal({ replay: false }); return; }
     const m = /^c(\d+):(\d+)$/.exec(element);
@@ -115,9 +122,11 @@ const xr = new XRMode(R, {
     xr.refreshPanel();
   },
   panelModel: (id) => panelModel(id),
+  cardsModel: () => cardsModel(),
+  onFlourish: (dir, speed) => { audio.gesture('sweep', { dir, speed }); },
   onSession: (on) => {
     app.xrPresenting = on;
-    if (on) { gov.beginExternal(); R.renderer.setAnimationLoop((t) => gov.pump(t)); if (settings.sound) audio.enable(); }
+    if (on) { gov.beginExternal(); R.renderer.setAnimationLoop((t) => gov.pump(t)); if (settings.sound) audio.enable(); app.guide = { step: 0, since: 0, lastReveal: null }; setGuide(1); }
     else { R.renderer.setAnimationLoop(null); gov.endExternal(); }
     document.body.classList.toggle('xr', on);
   },
@@ -141,6 +150,32 @@ function panelModel(id) {
     controls, release: app.reveal.dirty ? 'Replay with this change' : 'Release',
     note: app.guide.step === 2 ? (GUIDE_CHANGE[app.guide.lastReveal] || GUIDE_STEPS[2].title) : undefined,
   };
+}
+/** The conflict and permission cards as data for the room. key changes when the cards do. */
+function cardsModel() {
+  if (app.mode === 'attract') return { key: 'none', model: null };
+  const sim = app.sim;
+  const P = app.pending;
+  const key = JSON.stringify([sim.conflicts.map((c) => [c.id, c.resolved, c.chosen]), P ? P.loads : null, app.replays]);
+  if (!sim.conflicts.length && !P) return { key, model: null };
+  const layers = [];
+  const controls = [];
+  let eyebrow = 'The system needs your decision', eyebrowColor = '#ffd166', promise = '';
+  let footer = [];
+  if (P) {
+    const names = { ev: 'your car', heat: 'your heating', bakery: "the bakery's cold store", battery: 'the battery' };
+    eyebrow = 'Ask before changing an agreed plan';
+    promise = 'May I change the plan?';
+    layers.push({ head: 'You told me to ask', text: `You told me to ask before moving ${P.loads.map((id) => names[id]).join(' and ')}. The clock is stopped while you decide; the agreed plan stays in force until you say yes.` });
+    layers.push({ head: 'What would change', text: P.loads.map((id) => `${names[id]}: ${describeRuns(runs(app.sim.schedules[id]))} → ${describeRuns(runs(P.sim.schedules[id]))}`).join('. ') });
+    footer = [{ id: 'yes', text: 'Yes, change the plan', primary: true }, { id: 'no', text: 'No, keep the agreed plan' }];
+  }
+  sim.conflicts.forEach((c, ci) => {
+    if (!P && ci === 0) { eyebrow = c.severity === 'hard' ? 'The system cannot solve this alone' : 'The system needs your decision'; eyebrowColor = c.severity === 'hard' ? '#ff5d6c' : '#ffd166'; promise = c.title; layers.push({ head: 'Why', text: c.text }); }
+    else layers.push({ head: c.title, text: c.text });
+    if (c.options?.length) controls.push({ label: ci === 0 && !P ? 'Choose' : c.title, options: c.options.map((o, oi) => ({ id: `opt:${ci}:${oi}`, text: o.label, on: c.resolved && c.chosen === o.id })) });
+  });
+  return { key, model: { eyebrow, eyebrowColor, promise, layers, controls, footer } };
 }
 function resumeAfterTouch() {
   if (app.mode !== 'reveal' && !app.paused) setTimeout(() => { if (!app.holding && app.mode !== 'reveal' && !app.paused && !app.pending) { app.timeScale = 1; audio.setFrozen(false); } }, 700);
@@ -563,6 +598,7 @@ function openReveal(id, { viaPull = false } = {}) {
   p.classList.remove('deep', 'tech-open');
   p.querySelector('.more').textContent = 'Show me the working';
   guideEvent('reveal', id);
+  audio.gesture('point', { section: id });
   renderControls(id);
   p.querySelector('.release').classList.remove('dirty');
   p.querySelector('.release').textContent = 'Release';
@@ -670,6 +706,7 @@ function setGuide(step) {
     let { anchor, title, sub } = def;
     if (step === 3) { anchor = g.lastReveal === 'home' ? 'car' : 'home'; ({ title, sub } = GUIDE_NEXT[anchor]); }
     g.anchor = anchor;
+    g.title = title; g.sub = sub; g.kicker = def.kicker;
     el.guide.querySelector('b').textContent = title;
     el.guide.querySelector('span').textContent = sub;
     let k = el.guide.querySelector('.step');
@@ -680,6 +717,7 @@ function setGuide(step) {
     cam.userYaw = b.yaw; cam.userPitch = clamp(b.pitch - 0.05, -0.2, 0.3);
   }
   if (typeof gov !== 'undefined') wake();
+  if (xr.presenting) xr.guide(step, g.anchor ? nodes.get(g.anchor).world : null, g.title, g.sub, g.kicker);
 }
 function guideNote() {
   const g = app.guide;
@@ -720,52 +758,82 @@ function showHint() {
    ring as its lit quarter-hours fly to their new times, and returns to the
    eye as the day starts again. It is the one moment of being *in* the flow,
    and it ends where the decision can be read. Wall-clock timed. */
-const RIDE = { fly: 8.2, land: 2.4, back: 1.8 }; // seconds; fly includes the shrink from the eye into the source strand
+const RIDE = { total: 12.6 }; // seconds, one continuous curve: shrink into the source strand, fly, land over the ring, return
 const RIDE_LINK = { car: 'toCar', home: 'toHome', bakery: 'toBakery', battery: 'battery' };
+/** Monotone cubic interpolation (Fritsch–Carlson): a smooth, never-reversing map from time to path position. */
+function monotoneCubic(xs, ys) {
+  const n = xs.length;
+  const d = [], m = [];
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  m[0] = 0; m[n - 1] = 0; // zero slope at both ends: no jerk leaving the eye or arriving back
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i];
+    const h = Math.hypot(a, b);
+    if (h > 3) { m[i] = 3 * d[i] * a / h; m[i + 1] = 3 * d[i] * b / h; }
+  }
+  return (x) => {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0; while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h;
+    const h00 = 2 * t ** 3 - 3 * t ** 2 + 1, h10 = t ** 3 - 2 * t ** 2 + t, h01 = -2 * t ** 3 + 3 * t ** 2, h11 = t ** 3 - t ** 2;
+    return h00 * ys[i] + h10 * h * m[i] + h01 * ys[i + 1] + h11 * h * m[i + 1];
+  };
+}
+const smoothstep = (x) => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
 function startRide(dest) {
   const link = ribbons.energy[RIDE_LINK[dest]];
   if (!link) return false;
   const first = dayring.firstActive(dest);
   const slot0 = first >= 0 ? first : 0;
   const src = app.sim.series.renewFrac[slot0] >= 0.5 ? 'windIn' : 'gridIn';
-  const pts = [];
-  // from the eye, shrink towards the source, then along its strand: the hop is short so most of the ride is inside the flow
-  const srcStart = ribbons.energy[src].curve.getPointAt(0).clone(); srcStart.y += 0.35;
-  for (let i = 0; i < 12; i++) { const u = i / 12; pts.push(EYE.clone().lerp(srcStart, u * u * (3 - 2 * u)).add(new THREE.Vector3(0, Math.sin(u * Math.PI) * 1.2, 0))); }
-  for (let i = 0; i <= 40; i++) { const v = ribbons.energy[src].curve.getPointAt(i / 40); v.y += 0.35; pts.push(v); }
-  for (let i = 1; i <= 40; i++) { const v = link.curve.getPointAt(i / 40); v.y += 0.35; pts.push(v); }
-  const path = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
   const target = nodes.get(dest).world;
   const bead = dayring.beadAt(dest, slot0);
   const landPos = target.clone().add(EYE.clone().sub(target).normalize().multiplyScalar(4.8)).add(new THREE.Vector3(0, 1.4, 0));
-  app.ride = { t0: performance.now(), dest, src, path, target, bead, landPos, phase: 'fly', endPos: path.getPointAt(1), migrated: false, looked: false };
+  // waypoints: the eye, a gentle lift towards the source, along its strand, along the load's strand, up and back over the ring, home
+  const way = [EYE.clone()];
+  const srcStart = ribbons.energy[src].curve.getPointAt(0).clone(); srcStart.y += 0.35;
+  way.push(EYE.clone().lerp(srcStart, 0.45).add(new THREE.Vector3(0, 1.1, 0)));
+  for (let i = 0; i <= 8; i++) { const v = ribbons.energy[src].curve.getPointAt(i / 8); v.y += 0.35; way.push(v); }
+  for (let i = 1; i <= 8; i++) { const v = link.curve.getPointAt(i / 8); v.y += 0.35; way.push(v); }
+  const arriveIdx = way.length - 1;
+  way.push(landPos.clone().lerp(target, 0.35).add(new THREE.Vector3(0, 0.7, 0)));
+  way.push(landPos.clone());
+  const landIdx = way.length - 1;
+  way.push(landPos.clone().lerp(EYE, 0.5).add(new THREE.Vector3(0, 0.5, 0)));
+  way.push(EYE.clone());
+  // soften the waypoint chain twice so the spline never carries a corner from the strand junction
+  for (let pass = 0; pass < 2; pass++) for (let i = 1; i < way.length - 1; i++) {
+    if (i === landIdx) continue;
+    way[i] = way[i - 1].clone().add(way[i]).add(way[i + 1]).multiplyScalar(1 / 3).lerp(way[i], 0.4);
+  }
+  const path = new THREE.CatmullRomCurve3(way, false, 'centripetal', 0.5);
+  // where along the arc the key waypoints fall
+  const N = 400;
+  const uOf = (p) => { let best = 0, bd = Infinity; for (let i = 0; i <= N; i++) { const q = path.getPointAt(i / N); const dd = q.distanceToSquared(p); if (dd < bd) { bd = dd; best = i / N; } } return best; };
+  const uArrive = uOf(way[arriveIdx]), uLand = uOf(way[landIdx]);
+  // time → position: slow out of the eye, cruise, a dwell over the ring while the beads fly, an unhurried return
+  const D = RIDE.total;
+  const warp = monotoneCubic([0, D * 0.6, D * 0.74, D * 0.84, D], [0, uArrive, uLand - 0.004, uLand + 0.004, 1]);
+  app.ride = { t0: performance.now(), dest, src, path, target, bead, landPos, uArrive, uLand, warp, duration: D, migrated: false, looked: false, lookDir: forwardOf(cam.yaw, cam.pitch), lastU: 0 };
   app.rideAmt = 0;
   ribbons.energy[src].burst = 1;
   link.burst = 1;
   return true;
 }
-/** Advance the ride; returns true while it owns the camera. */
-function updateRide(now, pos, look) {
+/** Advance the ride; returns true while it owns the camera. Position is a smooth spline, orientation a filtered blend. */
+function updateRide(now, dt, pos, look) {
   const r = app.ride;
   if (!r) return false;
   const t = (now - r.t0) / 1000;
-  const smooth = (u) => u * u * (3 - 2 * u);
-  if (t < RIDE.fly) {
-    // ease in slowly (the shrink), cruise, ease out at the object
-    const x = clamp(t / RIDE.fly, 0, 1);
-    const u = x < 0.22 ? 0.12 * Math.pow(x / 0.22, 2) : 0.12 + 0.88 * smooth((x - 0.22) / 0.78);
-    r.path.getPointAt(u, pos);
-    r.path.getPointAt(Math.min(1, u + 0.02), look);
-    if (u > 0.985) look.copy(r.target);
-    app.rideAmt = Math.min(1, t / 1.6); // the world grows around you as you become small
-    return true;
-  }
+  const u = clamp(r.warp(t), 0, 1);
   // phase entries are idempotent and also run at the end, so a slow or hidden frame rate can never skip them
   const land = () => {
     if (r.migrated) return;
     r.migrated = true;
-    // the lit quarter-hours fly to their new times while the visitor is looking at the ring
-    if (app.prevSim) dayring.migrate(app.prevSim, app.sim);
+    if (app.prevSim) dayring.migrate(app.prevSim, app.sim); // the lit quarter-hours fly while the visitor looks at the ring
     dayring.spotlight(r.dest, 3.2);
   };
   const lookHome = () => {
@@ -774,30 +842,43 @@ function updateRide(now, pos, look) {
     const b = bearingOf(r.target);
     cam.userYaw = b.yaw; cam.userPitch = clamp(b.pitch - 0.06, -0.3, 0.3);
     cam.yaw = cam.yawT = b.yaw; cam.pitch = cam.pitchT = cam.userPitch + 0.02; cam.dolly = cam.dollyT = 0;
-    app.choreoUntil = performance.now() + RIDE.back * 1000 + 300;
+    app.choreoUntil = performance.now() + Math.max(0, r.duration - t) * 1000 + 300;
   };
-  if (t < RIDE.fly + RIDE.land) {
-    land();
-    const u = smooth(clamp((t - RIDE.fly) / RIDE.land, 0, 1));
-    pos.copy(r.endPos).lerp(r.landPos, u);
-    look.copy(r.target).lerp(r.bead, u);
-    app.rideAmt = 1 - u; // back to full size as you land
-    return true;
-  }
-  if (t < RIDE.fly + RIDE.land + RIDE.back) {
+  if (u >= r.uArrive + 0.01) land();
+  if (u >= r.uLand) lookHome();
+  if (t >= r.duration) {
     land(); lookHome();
-    const u = smooth(clamp((t - RIDE.fly - RIDE.land) / RIDE.back, 0, 1));
+    // hand the camera over facing the way the ride left it looking; the normal easing takes it the rest of the way
+    const d = r.lookDir;
+    cam.yaw = Math.atan2(d.x, -d.z); cam.pitch = clamp(Math.asin(clamp(d.y, -1, 1)), -0.6, 0.6);
+    app.ride = null;
     app.rideAmt = 0;
-    pos.copy(r.landPos).lerp(EYE, u);
-    const fwd = forwardOf(cam.yaw, cam.pitch).add(EYE);
-    look.copy(r.bead).lerp(fwd, u);
-    return true;
+    if (app.toastPending) { app.toastPending = false; showToast(); }
+    return false;
   }
-  land(); lookHome();
-  app.ride = null;
-  app.rideAmt = 0;
-  if (app.toastPending) { app.toastPending = false; showToast(); }
-  return false;
+  r.path.getPointAt(u, pos);
+  // where to look: along the path, then at the object, then down at its bead on the ring, then home
+  const desired = new THREE.Vector3();
+  if (u < r.uArrive) {
+    const ahead = r.path.getPointAt(Math.min(1, u + 0.012)).sub(pos).normalize();
+    const toTarget = r.target.clone().sub(pos).normalize();
+    desired.copy(ahead).lerp(toTarget, smoothstep((u - r.uArrive * 0.7) / (r.uArrive * 0.3)));
+  } else if (u < r.uLand) {
+    const toTarget = r.target.clone().sub(pos).normalize();
+    const toBead = r.bead.clone().sub(pos).normalize();
+    desired.copy(toTarget).lerp(toBead, smoothstep((u - r.uArrive) / (r.uLand - r.uArrive)));
+  } else {
+    const toBead = r.bead.clone().sub(pos).normalize();
+    const home = forwardOf(cam.yaw, cam.pitch);
+    desired.copy(toBead).lerp(home, smoothstep((u - r.uLand) / (1 - r.uLand)));
+  }
+  desired.normalize();
+  // low-pass the orientation so nothing on the path can produce a bump
+  r.lookDir.lerp(desired, 1 - Math.exp(-dt * 3.2)).normalize();
+  look.copy(pos).add(r.lookDir);
+  // the world grows around you as you become small, and returns as you land
+  app.rideAmt = smoothstep(u / 0.1) * (1 - smoothstep((u - r.uArrive) / Math.max(1e-6, r.uLand - r.uArrive)));
+  return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1053,7 +1134,9 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
     // sweep the day to the slot under the finger, the short way round
     let d = app.batonTarget - app.slotF;
     if (d > SLOTS / 2) d -= SLOTS; if (d < -SLOTS / 2) d += SLOTS;
-    app.slotF = ((app.slotF + d * Math.min(1, dtRaw * 9)) % SLOTS + SLOTS) % SLOTS;
+    const step = d * Math.min(1, dtRaw * 9);
+    app.slotF = ((app.slotF + step) % SLOTS + SLOTS) % SLOTS;
+    if (Math.abs(step) > 0.35) audio.gesture('sweep', { dir: Math.sign(step), speed: clamp(Math.abs(step) / 4, 0.1, 1) });
     syncCursor();
   }
   if (app.slotF >= SLOTS) {
@@ -1126,8 +1209,8 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
   const fwd = forwardOf(cam.yaw, cam.pitch);
   camPos.copy(EYE).add(fwd.clone().multiplyScalar(cam.dolly));
   camLook.copy(camPos).add(fwd);
-  const riding = updateRide(performance.now(), camPos, camLook);
-  if (xr.presenting) xr.update({ eye: EYE, ridePos: camPos, riding, revealId: app.reveal.id });
+  const riding = updateRide(performance.now(), dtRaw, camPos, camLook);
+  if (xr.presenting) xr.update({ eye: EYE, ridePos: camPos, riding, revealId: app.reveal.id, dt: dtRaw });
   else { R.camera.position.copy(camPos); R.camera.lookAt(camLook); }
   {
     const amt = app.rideAmt || 0;

@@ -27,7 +27,8 @@ function wrap(ctx, text, maxWidth) {
 }
 
 export class VRPanel {
-  constructor({ width = 1.05, height = width * (H / W) } = {}) {
+  constructor({ width = 1.05, height = width * (H / W), accent = null } = {}) {
+    this.accent = accent;
     this.canvas = document.createElement('canvas');
     this.canvas.width = W; this.canvas.height = H;
     this.ctx = this.canvas.getContext('2d');
@@ -52,11 +53,11 @@ export class VRPanel {
     // card
     c.fillStyle = 'rgba(6, 9, 20, 0.92)';
     roundRect(c, 0, 0, W, H, 36); c.fill();
-    c.strokeStyle = 'rgba(191, 245, 255, 0.35)'; c.lineWidth = 3; roundRect(c, 1.5, 1.5, W - 3, H - 3, 36); c.stroke();
+    c.strokeStyle = this.accent || 'rgba(191, 245, 255, 0.35)'; c.lineWidth = 3; roundRect(c, 1.5, 1.5, W - 3, H - 3, 36); c.stroke();
     let y = 64;
     const X = 56, INNER = W - 2 * X;
     c.textBaseline = 'top';
-    c.fillStyle = '#bff5ff'; c.font = `600 22px ${FONT}`;
+    c.fillStyle = model.eyebrowColor || '#bff5ff'; c.font = `600 22px ${FONT}`;
     c.fillText(String(model.eyebrow || '').toUpperCase().split('').join(String.fromCharCode(8202)), X, y); y += 40;
     c.fillStyle = '#eef3ff'; c.font = `400 44px ${FONT}`;
     for (const line of wrap(c, `“${model.promise}”`, INNER)) { c.fillText(line, X, y); y += 52; }
@@ -98,8 +99,9 @@ export class VRPanel {
       }
       y += 66 + 18;
     }
-    // footer
-    const fy = H - 120, bw = (INNER - 20) / 2;
+    // footer: the model's own buttons, or Release / Close
+    const footer = model.footer || [{ id: 'release', text: model.release || 'Release', primary: true }, { id: 'close', text: 'Close', primary: false }];
+    const fy = H - 120, bw = (INNER - 20 * (footer.length - 1)) / footer.length;
     const btn = (id, text, x, primary) => {
       c.fillStyle = primary ? '#26bf64' : 'rgba(255,255,255,0.07)';
       roundRect(c, x, fy, bw, 80, 22); c.fill();
@@ -108,8 +110,7 @@ export class VRPanel {
       c.textAlign = 'center'; c.fillText(text, x + bw / 2, fy + 24); c.textAlign = 'left';
       this.hits.push({ id, x, y: fy, w: bw, h: 80 });
     };
-    btn('release', model.release || 'Release', X, true);
-    btn('close', 'Close', X + bw + 20, false);
+    footer.forEach((b, i) => btn(b.id, b.text, X + i * (bw + 20), !!b.primary));
     this.texture.needsUpdate = true;
   }
 
