@@ -25,7 +25,7 @@ async function bundle() {
     write: false,
     legalComments: 'none',
     logLevel: 'silent',
-    loader: { '.geo': 'binary' },
+    loader: { '.geo': 'binary', '.opus': 'binary', '.wav': 'binary' },
   });
   const js = result.outputFiles[0].text;
   const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');

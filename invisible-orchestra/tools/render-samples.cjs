@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Render audio samples of the generative score, offline, so the music can be
- * judged without a kiosk or a headset. Each clip plays the real simulation at
- * a chosen hour through the real Orchestra class into an OfflineAudioContext,
+ * Render audio samples of the score, offline, so the music can be judged
+ * without a kiosk or a headset. Each clip plays the real simulation at a
+ * chosen hour through the real Orchestra class (the recorded stems of The
+ * Light We Remember, embedded in the built file) into an OfflineAudioContext,
  * then writes a 16-bit stereo WAV.
  *
  *   node tools/render-samples.cjs [outDir]
@@ -18,12 +19,12 @@ fs.mkdirSync(out, { recursive: true });
 const page = 'file://' + path.resolve(__dirname, '..', 'dist', 'invisible-orchestra.html');
 
 const CLIPS = [
-  { name: '01-02h-car-charges-on-wind', seconds: 16, slots: [32, 44], sim: {}, note: '02:00. Lydian: the wind is strong and cheap. Strings and bass, cello pizzicato while the car charges, the car motif on the flute.' },
-  { name: '02-18h-evening-peak-cable-strained', seconds: 16, slots: [1, 13], sim: { permissions: { ev: 'never', battery: 'never' }, streetPool: false }, note: '18:15. Aeolian: the dear evening. The cable near its limit brings the timpani; the uncoordinated car charges at dinner time.' },
-  { name: '03-06h-the-bakery-opens', seconds: 16, slots: [46, 58], sim: {}, note: '06:00. Dorian into Ionian as the price climbs. Brass while the ovens are hot, the bakery fanfare on the flute, the harp as the battery releases.' },
-  { name: '04-release-downbeat-and-ride', seconds: 16, slots: [30, 42], sim: {}, note: 'A release: the cadence, then the swell of the ride with rising arpeggios, then it settles.', events: 'ride' },
-  { name: '05-the-baton', seconds: 14, slots: [30, 41], sim: {}, note: 'The baton across the ring: glissandi the way the hand goes, faster hand, more notes.', events: 'baton' },
-  { name: '06-hold-then-decisions', seconds: 16, slots: [36, 48], sim: {}, note: 'A hold (fermata: the ensemble holds under a closed filter), then a decision, a question, a conflict, a pointed call, and an opening figure.', events: 'decisions' },
+  { name: '01-02h-car-charges-on-wind', seconds: 16, slots: [32, 44], sim: {}, note: '02:00. The wind scene (cheap, windy): full strings with the wind, the car stem while it charges.' },
+  { name: '02-18h-evening-peak-cable-strained', seconds: 16, slots: [1, 13], sim: { permissions: { ev: 'never', battery: 'never' }, streetPool: false }, note: '18:15. The peak scene: the dear evening. Timpani warnings from the cable near its limit; the uncoordinated car charges at dinner time.' },
+  { name: '03-06h-the-bakery-opens', seconds: 16, slots: [46, 58], sim: {}, note: '06:00. Dawn into day as the price climbs. The bakery stem while the ovens are hot, the battery stem as it releases.' },
+  { name: '04-release-downbeat-and-ride', seconds: 30, slots: [30, 56], sim: {}, note: 'A commit: the held dominant and a breath (7.5 s), then the release lands as the ride arrives.', events: 'ride' },
+  { name: '05-the-baton', seconds: 14, slots: [30, 41], sim: {}, note: 'The baton across the ring: harp glissandi the way the hand goes; forward swells, back hushes.', events: 'baton' },
+  { name: '06-hold-then-decisions', seconds: 16, slots: [36, 48], sim: {}, note: 'A hold (the orchestra holds its chord), then a decision bell, a question, a conflict, a pointed call, and an opening figure.', events: 'decisions' },
 ];
 
 (async () => {
@@ -44,6 +45,7 @@ const CLIPS = [
       const W = (id) => o.nodes.get(id).world.toArray();
       a.setPositions({ strings: W('wind'), bass: W('substation'), pad: W('home'), brass: W('bakery'), cello: W('car'), harp: W('battery'), timpani: W('substation') });
       a.enable();
+      await a.preload(); await a.settled(); // recorded audio must be decoded before anything can play (unchanged, this renders silence)
       a.setListener({ x: 0, y: 0.4, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
       const beatSec = 110 / 96; // the kiosk's default day length
       const sched = [];
@@ -77,7 +79,11 @@ const CLIPS = [
         let t = Math.round(e.t * rate / 128) * 128 / rate;
         if (t <= last) t = last + 128 / rate;
         last = t;
-        a.ctx.suspend(t).then(() => { try { e.fn(); } catch (err) { console.error('event failed', err.message); } a.ctx.resume(); }).catch(() => {});
+        a.ctx.suspend(t).then(async () => {
+          try { e.fn(); a.pump(); await a.settled(); a.pump(); } // let any decode or hold analysis the event started finish, then schedule it
+          catch (err) { console.error('event failed', err.message); }
+          a.ctx.resume();
+        }).catch(() => {});
       }
       const buf = await a.ctx.startRendering();
       // 16-bit stereo WAV

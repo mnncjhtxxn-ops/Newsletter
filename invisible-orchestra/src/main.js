@@ -288,7 +288,7 @@ function accept(input, sim, { replay = false } = {}) {
     app.choreoUntil = app.ride ? Infinity : anyChange ? performance.now() + 2300 : 0; // wall clock: the pause must not stretch on a slow frame rate; a ride sets it when it lands
     app.timeScale = app.paused ? 0 : anyChange ? 0 : 1;
     app.lessonsAuto = false;
-    audio.downbeat();
+    audio.downbeat({ ride: !!app.ride });
     if (app.ride) app.toastPending = true; else showToast();
     el.chipChanged.classList.remove('hidden');
     el.chipLessons.classList.remove('hidden');
@@ -311,7 +311,7 @@ function commitDraft() {
     app.pending = { input: clone(app.input), sim: proposed, loads: review.pending };
     app.timeScale = 0;
     audio.setFrozen(true);
-    audio.ping('ask');
+    audio.ping('ask', { pending: true });
     renderCards();
     renderPromise();
     return false;
@@ -345,7 +345,8 @@ function declinePending() {
   el.toast.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.toast.classList.add('hidden'), 9000);
-  if (app.mode !== 'reveal' && !app.paused) app.timeScale = 1;
+  app.mode = 'live'; // closeReveal({ replay: true }) leaves 'reveal' when the plan goes pending; without this the clock stays stopped under moving music
+  if (!app.paused) app.timeScale = 1;
   audio.setFrozen(false);
 }
 function syncCursor() {
@@ -1159,7 +1160,7 @@ function tick({ ts: now, rawGapMs, dt: dtRaw }) {
       const rb = ribbons.info[d.node];
       if (rb) rb.pulse(-1);
       if (app.mode !== 'attract' && d.kind !== 'ask') caption(d.node, d.text);
-      audio.ping(d.kind === 'ask' ? 'ask' : 'decision');
+      audio.ping(d.kind === 'ask' ? 'ask' : 'decision', { pending: false });
     }
     if (slot !== prevSlot) audio.beat(slot, f, (dayLen / SLOTS) / Math.max(app.timeScaleCur, 0.2));
     if (slot !== prevSlot && slot % 8 === 0) { for (const id of ['car', 'home', 'bakery', 'wind']) ribbons.info[id]?.pulse(1); }
