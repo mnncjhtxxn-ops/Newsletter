@@ -1069,7 +1069,7 @@ window.addEventListener('keydown', (e) => { if (e.key === ' ') el.btnPause.click
 /* ------------------------------------------------------------------ */
 const captionPool = [];
 const listenerUp = new THREE.Vector3(0, 1, 0);
-audio.setPositions({ strings: nodes.get('wind').world.toArray(), pad: nodes.get('home').world.toArray(), brass: nodes.get('bakery').world.toArray(), cello: nodes.get('car').world.toArray(), harp: nodes.get('battery').world.toArray(), timpani: nodes.get('substation').world.toArray() });
+audio.setPositions({ strings: nodes.get('wind').world.toArray(), bass: nodes.get('substation').world.toArray(), pad: nodes.get('home').world.toArray(), brass: nodes.get('bakery').world.toArray(), cello: nodes.get('car').world.toArray(), harp: nodes.get('battery').world.toArray(), timpani: nodes.get('substation').world.toArray() });
 function caption(nodeId, text) {
   // one live caption per object: a newer decision replaces the older one
   for (let k = captionPool.length - 1; k >= 0; k--) if (captionPool[k].node === nodeId) { captionPool[k].el.remove(); captionPool.splice(k, 1); }
